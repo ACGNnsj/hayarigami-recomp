@@ -1,0 +1,239 @@
+# Code patches for XC2 3.0.1 main (recomp/patches.py), and for the Japanese 3.0.0, whose code and data are the same
+# (tools/xc2_titles.py PATCH_TABLES).
+
+# xc2fps (XC2_FPS60, on): the frame rate of the frame limit XC2_FPS_LIMIT (frame_rate.c). XC2 paces its frames as
+# XCX 2.0.0 does (recomp/patches-upd.txt, set xcx60): a frame interval in vsyncs at main+0xb75c40, set to 2 at boot; a
+# vsync period, a virtual of the graphics device that returns 1/60 s (main+0x6bdc50); a frame-time getter that returns
+# interval * period (main+0x6a36bc), the step the game takes; and a limiter (main+0x6aafd8) that spins until the time
+# since the frame started passes interval * period * 0.997. Found in 3.0.1 by profiling the main thread (XC2_PROFILE);
+# masagrator's Xenoblade2DynFPS (2.1.0, GPL-2.0, read for behaviour only) sets the same interval from the present
+# interval and scales the game's step.
+set xc2fps XC2_FPS60 1
+# The boot setter's interval (main+0x6e3f44 calls main+0x6a4078 with 2): 1 vsync per frame; frame_rate.c sets 2 again
+# in cutscenes.
+site xc2fps main 6e3f44 sha:0265c163ec564f1e 320003e0
+# The vsync period: the patch page's +0x40 (1 / limit, or the measured frame time in play), so interval * period, the
+# game's step, follows the frames.
+site xc2fps main 6bdc54 sha:8bcf2e461b241ca6 @page:x8 bd404100
+# The limiter's wait, interval * period * 0.997 against the time since the frame started: the page's +0x48, the frame
+# time of the limit. x8 is dead here: the loop calls main+0x6e26f8 next, or returns.
+site xc2fps main 6ab168 sha:b868457ac02f8584 @page:x8 bd404900
+# The effect system's calculation (main+0x858748, the particles of mist, fire and sparks): each frame it adds 1 to the
+# accumulator at +0x15c, runs one step (main+0x84a738, s0 1) for each whole unit and subtracts it; below one unit it runs
+# the call that only keeps what is drawn current (w2 1), the way the effect library slows down. Adding the page's +0x54
+# instead of 1 steps the particles at the game's rate, and their whole-frame life counters (main+0x847c20) with them. s8
+# stays 1 for the comparison. x9 and s1 are free here.
+site xc2fps main 858750 sha:be49105426fb4937 @page:x9 bd405521 1e212800
+# The graphics step (+0x1c8c of the renderer, main+0x71b7e4 each frame and main+0x71ce60): +0x1c84 times +0x1c88, both 1,
+# in frames of 1/30 s. Timers subtract it and speeds are multiplied by it: the frame counters of animated materials
+# (main+0x777d80, the scrolling layers of the sky and of water), fades and lights. main+0x70a7e8 copies it to +0x60 of the
+# graphics settings ([main+0xb8daa0]), which times +0x64 is the speed of the drifting fog (main+0x71247c, offsets at +0x490
+# and +0x4a0 of its object), of the cloud sea's scroll (main+0x70f300) and of the wind (main+0x70d160), which the cloud
+# layers add (main+0x716074). The grass and wind sway (main+0x779118, main+0x748660) multiplies the step itself. All of them ran per frame, so above 30 fps the fog and the sky moved faster. The product is scaled by the page's +0x54. s1 is loaded again before it is read; x9 and
+# x8 are free at their sites.
+site xc2fps main 71b838 sha:0da2b67a045b7306 1e210800 @page:x9 bd405521 1e210800
+site xc2fps main 71ce78 sha:6774aaeebfa5d512 1e210800 @page:x8 bd405501 1e210800
+# Right-stick camera turn: the player camera's update (around main+0x1d1240) adds the stick, after its smoothing, times
+# the yaw speed (+0x52dc) and the pitch speed (+0x52e0) of its speed table (camera.param's YawRotSpeed and
+# PitchRotSpeed per camera speed option, filled at main+0x1cdda8) to the yaw (+0xb8) and the pitch (+0xc0) each frame,
+# with no frame time, so above 30 fps the camera turned faster. Both speeds are scaled where they are loaded by the
+# page's +0x5c, the step this frame times 30 times the mouse's turn beyond a full stick (frame_rate.c xc2_steps_store,
+# input.c input_camera_boost), as XCX's turn (patches-upd.txt, xc260). x8 is rewritten before it is read again at both
+# (a call, then an adrp); s1 is free at both.
+site xc2fps main 1d12c8 sha:6474ca7bd27d8677 bc696900 @page:x8 bd405d01 1e210800
+site xc2fps main 1d1314 sha:899ffde6a5eca884 bc696900 @page:x8 bd405d01 1e210800
+# Jiggle bones, hair and cloth (skdlib, main+0x888854 steps every solver with the game's step). The solver works in the
+# model's space, so each frame main+0x88899c hands it how far the model moved and turned, limited to 0.1 (+0x198), and
+# main+0x89005c shifts the particles' current and previous positions by that. The particles then trail the bones by that
+# kick divided by stiffness * step squared (main+0x88d668), which is made for 1/30 s: the limit and the kick are per
+# frame while the pull back shrinks with the square of the step, and the limit's top speed doubles with the frame rate.
+# Chests pressed flat against the body: at most 3 % of the bone's length at 30 fps, 61 % at 60, 188 % at 120. The page's
+# +0x68, the step in 30 fps frames and at most 1, scales the limit, as the speed it stands for, and then the kick, as what
+# it does to the particles; below 30 fps the game keeps what it does on the console. The limit: x8 and s2 are free here.
+site xc2fps main 888aec sha:919ac3428e43aaaf @page:x8 bd406902 bd419a61 1e220821
+# The kick at sp (a position) and sp+0x10 (a quaternion), where both paths of the turn limit meet. The three sites run in
+# a row and only the first is a branch target. The position and the quaternion's x, y and z are scaled, and w is rebuilt
+# as sqrt(1 - x^2 - y^2 - z^2) with its old sign, which keeps the direction of the turn. None of this writes flags. x9, x10
+# and s0 to s5 are free; x8 is loaded again last, as the first site's original instruction does.
+site xc2fps main 888cd4 sha:6f0c54609442f30b @page:x8 bd406900 3dc003e1 4f809021 3d8003e1 3dc007e2 4f809043 f9400e68
+site xc2fps main 888cd8 sha:d037b10834e5b338 6e23dc64 4e1c1fe4 6e24d484 7e30d884 1e2e1005 1e2438a4 1e20c084 b9400919
+site xc2fps main 888cdc sha:dcf467223d4a419b 1e21c084 0e1c3c49 12010129 1e26008a 2a09014a 4e1c1d43 3d8007e3 340003d9
+# Their bounce: the integrator (main+0x88d668) keeps 1 - damping of a particle's velocity each step, also made for 1/30 s,
+# so above 30 fps more of it went per second: a chest swung back 41 % at 30 fps, 8 % at 60 and not at all at 120 (the
+# integrator on the chest's values). What should stay is (1 - damping) ^ (step * 30), and the code has no power. The
+# page's table at +0x400 (frame_rate.c xc2_retention_store) holds that minus 1 - damping, by damping in 256ths, so 0 at
+# 30 fps and below; this adds it. The mask keeps the index on the page whatever the data holds. s6 is the damping;
+# x10, x11 and s7 are free.
+site xc2fps main 88d7a4 sha:0e0f3924fef8c1b5 @page:x10 1e19e0cb 1200216b 9110014a bc6b5947 1e263926 1e2728c6
+
+# The cloud sea with the camera at its surface. Next to a dock that lies at the sea's height the player camera dips below
+# it when it looks up (Goldmouth's Exit Dock: top -8, camera -8.15). Prog 1277 then takes its path for a camera inside the
+# sea, which paints everything past the near plane in the sea's flat colour up to about 22 degrees above the horizon.
+# main+0x710250 loads the top (+0x194 of the camera block) and the camera's height (+0x154); keep the top at the camera
+# or below, as in the frame before it dipped. s0 is the camera height, s10 the top, here.
+set xc2sea XC2_SEA_TOP 1
+site xc2sea main 710260 sha:1e74171f216634b1 1e20594a 1e203950
+
+# The job wait (main+0x6df19c), which the frame limiter (main+0x6aafd8, through main+0x6e0598) enters every frame, polls
+# whether the jobs it waits for are done and sleeps 1 ms between polls in its mode 1 (main+0x6df47c: the sleep's length in
+# w0, 1,000,000 ns). At 30 fps that is 3 % of a frame; at 100 fps and above it is a tenth of one on the main thread, spent
+# after the jobs have mostly finished. 200 us (0x30d40) polls more often; the wait stays a poll, so nothing else changes.
+# Goldmouth walk, RTX 4070 Laptop: about 92 to 104 fps at a 144 limit; 50 us gained no more.
+set xc2poll XC2_JOB_POLL 1
+site xc2poll main 6df47c sha:c707c9cce27c1f37 52a00060 7281a800
+
+# xc2res (XC2_OUTPUT_RES, resolution.c): the size the game composes its frame in. XC2 composes 1280x720 (docked and
+# handheld): two getters of its graphics device return 1280 (main+0x6e3fc8) and 720 (main+0x6e3fd0), and the window
+# setup (main+0x700640) sizes the window textures with the same constants. All three read the patch page's +0x70
+# (width) and +0x74 (height) instead.
+set xc2res XC2_OUTPUT_RES 0
+site xc2res main 6e3fc8 sha:ffd5886200ad5493 @page:x0 b9407000
+site xc2res main 6e3fd0 sha:4cdbf2bbc589638e @page:x0 b9407400
+site xc2res main 700640 sha:1310f8325755a90c @page:x21 b94072b5
+site xc2res main 700644 sha:71f543de2911de5f @page:x22 b94076d6
+# The graphics heaps (main+0x6f4ee4 fills their sizes, main+0x705c20 carves GLIBCNT, GLIBPXL, GLIBVTX, ... from one
+# block of their sum): the render targets come from GLIBPXL, 0x16a00000 bytes (362 MiB), the high half of x9 here;
+# above 1280x720 the game aborts in its allocator (main+0x6e927c). The size is the page's +0x78 instead
+# (resolution.c xc2_res_init); the movk that follows sets the low half, GLIBCNT, as before.
+site xc2res main 6f4f74 sha:b56a63a9639ad888 @page:x9 b9407929 d3607d29
+# The game's memory layout (main+0x6421b4, handed to main+0x6e3f34): the main heap, then a 512 MiB graphics block
+# (orr w8, wzr, #0x20000000) that GLIB's heaps are carved from. Its size is the page's +0x7c instead (the same growth).
+site xc2res main 6421c4 sha:a95ccb820bea65ad @page:x8 b9407d08
+
+# Markers on the 3D scene (target cursor, damage numbers, talk and quest icons) are placed in the interface's
+# 1280x720 space with the camera's viewport (+0x1e0, +0x1e4), which the world-to-screen (main+0x6c3aa0), the
+# screen-to-world (main+0x6c3c84) and game code read. The camera update (main+0x6c2b90) copies the viewport from the
+# render surface's size (main+0x6d76f0, the frame size); its three loads of that size read the page's +0x80/+0x84
+# instead (1280, 720), so the markers follow the 1280x720 the game was made for. The aspect it derives (+0x1f0) is the
+# same at any 16:9 size, and the renderer takes its viewport from the render targets, so the scene keeps the frame
+# size. x9 and x10 are the loaded values themselves. Game code (below main+0x600000) that asks the graphics device for
+# the screen size (main+0x6a2edc width, main+0x6a2efc height) to place things on screen or to compare with projected
+# points gets 1280 and 720 too; the graphics framework and the renderer above it keep the frame size.
+# Rotated interface panes (the tutorial arrow, main+0x48c764, is an up arrow turned by pi about its centre): the layout
+# library's transform (main+0x832f68) rotates about a pivot that the pane's origin function (table [main+0xb8e6d0])
+# takes from the pane's size, which above 1280x720 is in frame pixels (+0x194, 132 for an 88 pane at 1920x1080), while
+# the position the turn is added to is in the interface's 1280x720 units: the pivot came out 1.5 times too far and a
+# half turn moved the arrow by half its size, down and right. The pivot (sp+8) is scaled by the page's +0x88 (720 /
+# frame height) where it is loaded. x8 is free after the origin function's blr x8; s3 is written next.
+site xc2res main 833090 sha:09434673fdbacb66 2d410be0 @page:x8 bd408903 1e230800 1e230842
+site xc2res main 6c2bd8 sha:2b4fceb6018b7f4f @page:x9 b9408129
+site xc2res main 6c2be8 sha:673c02dc4db9f003 @page:x10 b940854a
+site xc2res main 6c2bf8 sha:720baacc72f3a511 @page:x10 b940854a
+site xc2res main b7e08 sha:ad01bf20c6717a40 5280a000
+site xc2res main b7e14 sha:56fd869a52eb0312 52805a00
+site xc2res main b7e84 sha:d4af565b0d6e398c 5280a000
+site xc2res main b7e90 sha:d8db2f8dba04a734 52805a00
+site xc2res main b7f1c sha:8c63a210fa0c0b49 52805a00
+site xc2res main b7f24 sha:5b6d8cd4efe9cd90 5280a000
+site xc2res main b7f30 sha:9ad6faffc525e6c7 52805a00
+site xc2res main b7f90 sha:55562a03d778ef34 5280a000
+site xc2res main b7f98 sha:53e32e49e90e5306 5280a000
+site xc2res main b7fa0 sha:792cae1b2eb6bf29 52805a00
+site xc2res main b7fe4 sha:a56e21a1b1d3da8a 52805a00
+site xc2res main b8000 sha:465e31d896ab85a1 5280a000
+site xc2res main b800c sha:38e13e204bbf156d 52805a00
+site xc2res main b8074 sha:7c9952da98d7596a 52805a00
+site xc2res main b808c sha:d634d0d2b6fb9118 5280a000
+site xc2res main b8098 sha:4992f745ee98317c 52805a00
+site xc2res main b80f8 sha:d5607c56d10db16d 5280a000
+site xc2res main b810c sha:b8b4df51016001a1 5280a000
+site xc2res main b8120 sha:9dec0a16e3789c35 52805a00
+site xc2res main b8170 sha:e2e9452c82fb190c 5280a000
+site xc2res main b8188 sha:562c1e5b6bdf0396 5280a000
+site xc2res main b81a0 sha:95a15a869e3435ce 52805a00
+site xc2res main c61a8 sha:10cee20eccc2355e 52805a00
+site xc2res main c61b4 sha:a2879013ce8af566 5280a000
+site xc2res main c6208 sha:21d68d5961a8b9e0 5280a000
+site xc2res main c8304 sha:5a27a40eb1ad8e6f 5280a000
+site xc2res main d0830 sha:2549108468fb186f 5280a000
+site xc2res main d0a84 sha:35cfd1f106665528 5280a000
+site xc2res main ef56c sha:bf43bc546cf9ff54 5280a000
+site xc2res main ef578 sha:9e66a694ab4a8882 52805a00
+site xc2res main f8014 sha:55cc746e5923c321 5280a000
+site xc2res main f9c78 sha:95d34c10321e86fc 5280a000
+site xc2res main fde98 sha:65ff484f0677409c 5280a000
+site xc2res main fdeb0 sha:5640bfacda92db8c 5280a000
+site xc2res main fec78 sha:d77a1e8fc1cfa183 5280a000
+site xc2res main fefa0 sha:95c1730389f48dd7 5280a000
+site xc2res main 1065ec sha:fd93f4a3db1a042e 52805a00
+site xc2res main 1065f8 sha:4fd70ae3b7e06861 5280a000
+site xc2res main 1069b0 sha:23c954c477bc52a8 52805a00
+site xc2res main 1069bc sha:d200439852571ac8 5280a000
+site xc2res main 10728c sha:c669b67abdbd979d 52805a00
+site xc2res main 10d508 sha:0631458bb34acb90 5280a000
+site xc2res main 111634 sha:292e38eccca31b78 5280a000
+site xc2res main 111640 sha:0bdac77fc82d888e 52805a00
+site xc2res main 114e40 sha:cb87e2dff1886eb0 5280a000
+site xc2res main 114e4c sha:ab00ed3b097509be 52805a00
+site xc2res main 11663c sha:2c2f586578366f2f 52805a00
+site xc2res main 116648 sha:45d27c33643a73c0 5280a000
+site xc2res main 116694 sha:d1f8cba06dc7fcd5 5280a000
+site xc2res main 117038 sha:0888aef6e5283ad7 52805a00
+site xc2res main 117044 sha:325987bd2ee64eb0 5280a000
+site xc2res main 117098 sha:04daeb45b85615d2 5280a000
+site xc2res main 119b0c sha:0d5d09f6846992f7 5280a000
+site xc2res main 11cc6c sha:ea9f31a32a8e741e 5280a000
+site xc2res main 1232d0 sha:1fd2444745d356b4 5280a000
+site xc2res main 127754 sha:0dcfc8b3b7f3be7e 5280a000
+site xc2res main 1333b4 sha:8445caa56724bf99 52805a00
+site xc2res main 1333c0 sha:9bcdddac9f7d8208 5280a000
+site xc2res main 1334a4 sha:4389499b9c7a1985 5280a000
+site xc2res main 1424e4 sha:ed57861566114133 5280a000
+site xc2res main 1425bc sha:fede614bca009550 52805a00
+site xc2res main 1cdc58 sha:1c1b954337395cf9 5280a000
+site xc2res main 1cdc60 sha:cf74bdeb04283cb1 52805a00
+site xc2res main 1cf4b4 sha:187af2d9261a6b28 5280a000
+site xc2res main 1cf4c0 sha:21ff2bd3eeda4ac0 52805a00
+site xc2res main 1d4324 sha:61fdfb30291ddfae 5280a000
+site xc2res main 1d432c sha:d2f97d579b7ad91f 52805a00
+site xc2res main 328d88 sha:52c6f9deb191e017 5280a000
+site xc2res main 328d98 sha:7a9b8cb2e9b8523b 52805a00
+site xc2res main 329110 sha:447542af428abcce 5280a000
+site xc2res main 329120 sha:89126e7f267c2d70 52805a00
+
+# xc2scale (XC2_RENDER_SCALE, resolution.c): the share of the frame the 3D scene draws in. XC2 takes it from
+# /monolib/shader/lib_nx.ini, parsed by main+0x716e68: red_sclX/Y (1.0, +0x1928/+0x192c of the shader settings) and
+# red_hdsclX/Y (0.75 handheld, +0x193c/+0x1940) when red_Auto is off, and with red_Auto=on (shipped) a dynamic share
+# between red_AtMinX/Y (0.7) and red_AtMaxX/Y (1.0) of the dynamic-resolution object at +0x5c8 of its owner (+0x18/+0x1c
+# and +0x10/+0x14). Each value is replaced by the patch page's +0x58 (the scale, 0.25 to 1.0) as it is stored, so the
+# share is fixed whichever mode runs. x10 is rewritten before it is read after every case (main+0x719214).
+set xc2scale XC2_RENDER_SCALE 0
+site xc2scale main 717cd4 sha:99327e39d8fa7884 @page:x10 bd405940 bd192b00
+site xc2scale main 717d00 sha:cbaf5730df447e16 @page:x10 bd405940 bd192f00
+site xc2scale main 717d2c sha:f538b11b85408599 @page:x10 bd405940 bd193f00
+site xc2scale main 717d58 sha:592be8390f2134a4 @page:x10 bd405940 bd194300
+site xc2scale main 717db8 sha:d4baac18230cfd88 @page:x10 bd405940 bd001120
+site xc2scale main 717dec sha:b293a4ecc0f3cfdd @page:x10 bd405940 bd001520
+site xc2scale main 717e20 sha:6c937ded467437b5 @page:x10 bd405940 bd001920
+site xc2scale main 717e54 sha:e85fdb91c376cc74 @page:x10 bd405940 bd001d20
+
+# The port's own cheats (runtime/cheats.c, the Cheats tab's built-in rows). XC2's battle units live in one array
+# (main+0x7b5ac: unit = manager + index * 0x11d0 + 0x20, 0x59 slots); the game's own debug menu (main+0xf714, the
+# ReduceEnemyHP / ReducePCHP items) scans indices 0x14..0x59 for enemies and 0..0x13 for the party, so the party is
+# the low half of the array. A unit's flag word at +0xefe carries the side in bit 15: set for the party, clear for
+# enemies (main+0x564cc only processes hits on units with the bit clear; main+0x41728 treats bit 15 set with bit 16
+# clear as its own class). Both cheats read that bit of the attacking unit and rewrite its damage:
+#
+# xc2god (XC2_CHEAT_GOD_MODE, off): enemy attacks land for 0. main+0x5b904 is where the hit processor (main+0x5ab00)
+# loads the damage and flags word pair the damage calc (main+0x61e90) wrote, x19 holding the attacking unit; the
+# replacement keeps the load and masks the damage word with the sign of the side bit, so a party attack is unchanged
+# and an enemy attack lands for 0. Misses and blocks carry damage 0 already and stay 0; the damage estimates of
+# main+0x564cc (enemy AI) are read elsewhere and keep their real values, so the AI does not play dumb.
+set xc2god XC2_CHEAT_GOD_MODE 0
+site xc2god main 5b904 sha:25ddfebad5ecc05a a95a23e9 913bfa7e b94003de 130f3fde 0a1e0129
+#
+# xc2kill (XC2_CHEAT_INSTA_KILL, off): the party's hits land for 9999. The value is fixed, not the game's damage
+# cap, so the cheat one-shots most enemies but not the high-health uniques and bosses, and scripted scenes keep
+# their headroom. The site is the damage calc's single exit store (main+0x62668; the out struct rides in x8 and
+# main+0x61ebc moves it to x19): every path leaves through it, x20 still holds the attacking unit (main+0x61ec4,
+# never reassigned), and a party attack leaves here only after the calc's own dodge and block handling, which
+# lands in the same store with damage 0. The replacement recomputes the damage as
+# side * 9999 + (1 - side) * damage with side = bit 15 of the attacker's flags, ANDed with a test that the damage
+# is positive: sdiv by itself is 0 only for damage 0 (the runtime's sdiv32 gives ARM's divide-by-zero -> 0), and
+# the asr/bic pair clears the bit for a negative value, so whiffs, blocks and any heal-shaped value stay as the
+# calc wrote them. x9 and x30 are free here: the original code re-initialises x9 at main+0x6266c before its next
+# read and restores x30 at main+0x62690. Nothing after the site reads NZCV, so the replacement leaves it alone.
+# The damage estimates of main+0x564cc pass through the same store; their attackers hit the party, so their side
+# bit is clear and they are unchanged.
+set xc2kill XC2_CHEAT_INSTA_KILL 0
+site xc2kill main 62668 b900027b 913bfa9e b94003de 530f3fde 1adb0f69 0a0903de 131f7f69 0a2903de 5284e1e9 4b1b0129 1b096fdb b900027b

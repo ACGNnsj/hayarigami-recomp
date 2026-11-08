@@ -1,0 +1,94 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ご指定のページが見つかりませんでした。｜日本一ソフトウェア</title>
+<style>
+	html {
+		height: 100%;
+		font-size: 6.25%;
+		line-height: 1.36;
+	}
+	body {
+		height: 100%;
+    	color: #333;
+		display: flex;
+		flex-direction: row;
+		justify-content: center;
+		align-items: center;
+	}
+	.content {
+		width: 100%;
+		text-align: center;
+	}
+	.message {
+		display: inline-block;
+	}
+	.prinny {
+		max-width: 40%;
+	}
+	h2 {
+		font-size: 30rem;
+	}
+	p {
+		font-size: 16rem;
+		text-align: left;
+	}
+	.top-button {
+		transition: filter 0.25s;
+	}
+	.top-button:hover {
+		filter: brightness(1.2);
+	}
+	.top-button img {
+		max-width: 60%;
+		margin-top: 20px;
+	}
+
+	@media screen and (max-width: 960px) {
+		.content {
+			margin: 3%;
+		}
+		h2 {
+			font-size: 16rem;
+		}
+		p {
+			font-size: 12rem;
+		}
+	}
+
+</style>
+
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-56S58WC');</script>
+<!-- End Google Tag Manager -->
+</head>
+
+<body>
+	<!-- Google Tag Manager (noscript) -->
+	<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-56S58WC"
+	height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+	<!-- End Google Tag Manager (noscript) -->
+
+	<div class="content">
+		<img class="prinny" src="https://nippon1.jp/img/404/prinny_06.png">
+		<h2>
+			ご指定のページが見つかりませんでした。
+		</h2>
+		<div class="message">
+			<p>
+				お探しのページは削除、変更されたか、URLのタイプミスの可能性があります。<br>
+				恐れ入りますが、トップページから該当のページをお探しください。
+			</p>
+		</div>
+		<div>
+			<a class="top-button" href="https://nippon1.jp/"><img src="https://nippon1.jp/img/404/btn_back_top.png" alt="Nippon1.jpトップに戻る"></a>
+		</div>
+		</div><!-- content -->
+</body>
+</html>

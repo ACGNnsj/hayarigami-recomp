@@ -1,0 +1,9 @@
+# Build products: the generated C, objects, the runtime library and the executable (see framework/AGENTS.md).
+build/
+# Python environments for the framework tools.
+.venv/
+.venv314/
+__pycache__/
+*.pyc
+# Per-run logs that are not evidence for the repository.
+fs_progress.log
