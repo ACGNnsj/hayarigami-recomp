@@ -44,9 +44,15 @@ export XC2_INPUT_FORCE=1          # 窗口拿不到前台时也要能按键
 1. **影片不能播**（唯一的“真缺件”）。本作影片是 H.264/AAC，现在被 stub 跳过（剧情照常推进，只是看不到动画）。
    要真解码：Windows 上最省事是 Media Foundation（`MFCreateSourceReader`，系统自带、无 GPL），
    或 `openh264` + `fdk-aac`/`faad`。host 侧接到 `ov_movie.c` 的 `worker` 线程即可，接口已经现成。
-2. **第 1 部标题菜单重叠**：logo 带黑底方块、每个菜单项出现两份（一份橙色、一份灰色大号），
-   15 个 draw 画在同一 pass 里。官方手册截图 `refs/menu/ss_04.jpg` 是正确样子。
-   已备好 `XC2_DRAW_ONLY` 逐层截图，`build/v0/layer_*.png`；也已在 dump 里加了 blend/stencil 状态。
+2. **第 1 部标题菜单叠了两套**：正确的一套（初めから 橙色、続きから、特典、オプション設定、
+   他タイトルへ移動 斜排、権利表記）**加上**一套约 2 倍大、错位的灰色重影（巨大 logo 带黑底方块、
+   続き/オプション/特典/シナリオ 的大字），15 个 draw 在同一 pass 里。证据 `build/v0/shot_menu100.png`，
+   正确样子见官方手册 `refs/menu/ss_04.jpg`。dump 里 blend 是 SRC_ALPHA/ONE_MINUS_SRC_ALPHA、
+   depth func = ALWAYS，所以不是混合/深度问题，更像**同一批 UI 被画了第二遍**（缩放/半分辨率错），
+   或者 1・2・3 パック 的启动器界面还留在下面。
+   排查工具：`XC2_DRAW_ONLY=<first>:<last>`（`vk_exec.c`，按 draw 序号过滤）。**注意它现在跑出来恒黑**
+   （`build/v0/layer_*.png`、`shot_iso2.png` 都是纯黑，帧数正常），所以先用它之前得先修掉——
+   怀疑跳过 draw 之后接续的 pass 状态没恢复。这是明天第一件小事。
 3. **存档**：还没走过保存/读取流程（菜单里没点进去）。需要确认 `nn::fs` 的 save data 目录映射。
 4. **文本窗口偏亮**：旁白窗口是半透明白框，需要和官方截图再对一次是不是本该更暗/更透明。
 
