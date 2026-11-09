@@ -6,15 +6,21 @@ ARM64 代码抬升成 C，在 PC 上用宿主运行时（Horizon HLE + NVN→Vul
 > 本仓库不含任何游戏文件。要用自己的正版卡带转储（本体 XCI + 更新）和主机的 `prod.keys`，
 > 在你自己的机器上构建出你自己的副本。不要分发构建产物。
 
-## 现状（2026-11-09 03:xx，通宵自主推进）
+## 现状（2026-11-09 06:20）
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| P0 | 输入核对、本体 ExeFS/RomFS 提取、更新合并 | ✅ 完成，见 [docs/00-inputs.md](docs/00-inputs.md) |
-| P1 | 四个模块（main/subsdk0/sdk/rtld）全量抬升成 C | ✅ lifter 跑通，见 [docs/01-engine.md](docs/01-engine.md) |
-| P2 | 运行时起死回生：内核/线程、fs、vi、NVN 设备 | ⏳ 下一步 |
-| P3 | NMPL 引擎初始化：音频、输入、movie | ⏳ |
-| P4 | 进 FOAF1（第 1 部）：标题画面 → 游戏 | ⏳ |
+| P0 | 输入核对、本体 ExeFS/RomFS 提取、更新合并 | ✅ 见 [docs/00-inputs.md](docs/00-inputs.md) |
+| P1 | 四个模块（main/subsdk0/sdk/rtld）全量抬升成 C（72,009 函数 / 216 MB） | ✅ 见 [docs/01-engine.md](docs/01-engine.md) |
+| P2 | 运行时：内核/线程、fs、vi、audren、NVN 设备，60 fps 稳定 | ✅ 见 [STATUS.md](STATUS.md) |
+| P3 | NMPL 引擎初始化：输入、音频、movie（H.264/AAC 暂由 stub 跳过） | ✅ 部分 |
+| P4 | 进 FOAF1（第 1 部）：标题画面 → 标题选择 → 正篇旁白 | ✅ 部分 |
+
+**能跑到哪**：标题画面与官方 key art 逐像素一致 → 按键进标题选择（三作封面竖排）→ 第 1 部正篇开场旁白，
+300 秒 17,997 帧、mean 60.0 fps、1% low 58.8 fps、无 FATAL，audren 混音出声。
+
+**还没通**：影片（H.264/AAC）真解码、标题菜单叠了两套 UI、存档读写。详细进度、构建命令、
+按键表与已知问题都在 [STATUS.md](STATUS.md)。
 
 ## 这是什么游戏
 

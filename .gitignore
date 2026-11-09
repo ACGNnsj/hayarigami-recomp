@@ -7,3 +7,5 @@ __pycache__/
 *.pyc
 # Per-run logs that are not evidence for the repository.
 fs_progress.log
+# IDE state.
+.idea/
