@@ -1,0 +1,44 @@
+static int mf_set_output(Movie *m) {
+    IMFMediaType *out = mf_make_out(m->w, m->h);
+    HRESULT hr = out ? m->mf->lpVtbl->SetOutputType(m->mf, 0, out, 0) : E_OUTOFMEMORY;
+    if (out) out->lpVtbl->Release(out);
+    return SUCCEEDED(hr);
+}
+static void mf_configure_mft(Movie *m) {
+    int seq = m->mf_have_sps && m->mf_have_pps;
+    IMFMediaType *in = mf_make_in(m->w, m->h, seq ? m->mf_seq : NULL, seq ? m->mf_seq_len : 0);
+    HRESULT hr_in = in ? m->mf->lpVtbl->SetInputType(m->mf, 0, in, 0) : E_OUTOFMEMORY;
+    if (in) in->lpVtbl->Release(in);
+    int ok_out = SUCCEEDED(hr_in) && mf_set_output(m);
+    if (SUCCEEDED(hr_in) && ok_out) {
+        m->mf->lpVtbl->ProcessMessage(m->mf, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+        m->mf_ready = 1;
+        rt_log("movie: H.264 MFT decoding %dx%d (%s SPS/PPS sequence header)", m->w, m->h, seq ? "with" : "without");
+    } else {
+        m->mf_broken = 1;
+        rt_log("movie: H.264 MFT setup: input %#lx output %s", (unsigned long)hr_in, ok_out ? "ok" : "failed");
+    }
+}
+static int mf_open(Movie *m) {
+    mf_startup();
+    HRESULT hr = CoCreateInstance(&CLSID_CMSH264DecoderMFT, NULL, CLSCTX_INPROC_SERVER, &IID_IMFTransform,
+                                  (void **)&m->mf);
+    if (FAILED(hr) || !m->mf) {
+        rt_log("movie: H.264 MFT creation: %#lx", (unsigned long)hr);
+        return 0;
+    }
+    m->mf_live = 1;
+    return 1;
+}
+static void mf_close(Movie *m) {
+    if (m->mf) {
+        m->mf->lpVtbl->ProcessMessage(m->mf, MFT_MESSAGE_COMMAND_FLUSH, 0);
+        m->mf->lpVtbl->Release(m->mf);
+        m->mf = NULL;
+    }
+    free(m->mf_seq);
+    m->mf_seq = NULL;
+    m->mf_seq_len = m->mf_seq_cap = 0;
+    m->mf_live = m->mf_ready = m->mf_broken = m->mf_have_sps = m->mf_have_pps = 0;
+    m->mf_pre = m->mf_thread_init = m->mf_warned = 0;
+}

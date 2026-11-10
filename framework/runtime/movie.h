@@ -30,12 +30,13 @@ enum { MOVIE_EV_INPUT, MOVIE_EV_OUTPUT, MOVIE_EV_FORMAT, MOVIE_EV_ERROR };   // 
 // XC2's SDK 3.5 numbering: DecoderType 1 AVC, 2 VP8, 3 VP9, 4 AAC, 5 Vorbis (DecoderImpl::DecoderTypeToMime);
 // DecoderOutputFormat 3 is packed NV12, the one DecoderImpl::ConvertDecoderOutputFormat copies plane by plane (XCX's
 // newer library calls it 4). Input flag 4 is MediaCodec's end of stream in both.
-enum { MOVIE_TYPE_VP9 = 3, MOVIE_FORMAT_NV12 = 3, MOVIE_FLAG_EOS = 4 };
+enum { MOVIE_TYPE_AVC = 1, MOVIE_TYPE_VP9 = 3, MOVIE_TYPE_AAC = 4, MOVIE_FORMAT_NV12 = 3, MOVIE_FLAG_EOS = 4 };
 
 typedef struct { uint64_t frames, decode_ns, max_ns, errors, dropped, handed; } MovieStats;
 
 void movie_set_guest(const MovieGuest *g);                 // probe: stand-ins instead of the modules
 void movie_set_clock(uint64_t (*clock)(void));             // probe: a fake clock (ns) for the pacing; NULL = real
 void movie_set_pace(int on);                               // probe: 0 hands every decoded frame over at the next tick
+int movie_note_media_bytes(const void *buf, size_t n);   // bytes of an opened .mp4: the avcC is parsed for SPS/PPS; 1 when one was found
 int movie_stats(uint64_t obj, MovieStats *out);            // counters of the decoder at guest object obj; 0 if none
 int movie_quiet(uint64_t obj);                             // 1 when its worker is idle and cannot take more input now

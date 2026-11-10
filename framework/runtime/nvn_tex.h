@@ -10,7 +10,7 @@ uint64_t nvn_tex_level_offset(const nvn_texdesc *d, unsigned level);
 int nvn_fmt_bpb(int format, int *bw, int *bh);   // Bytes per block (0 = unknown format), block width and height
 // Block height / block depth actually used by level `level` (log2 of the GOB count): the per-level block height shrinks with that level's row count (block rows), and deswizzling uses it level by level
 void nvn_tex_level_tiles(const nvn_texdesc *d, unsigned level, unsigned *tileH, unsigned *tileD);
-// Row pitch of one level's block-linear storage: a packaged texture's offline packer rounds it up to 2048 bytes
+// Row pitch of one level's block-linear storage: a packaged texture's offline packer rounds it up to 1024 bytes
 // (32 GOBs), everything else uses the bare row bytes. See nvn_tex.c.
 uint32_t nvn_tex_bl_pitch(const nvn_texdesc *d, uint32_t row_bytes);
 

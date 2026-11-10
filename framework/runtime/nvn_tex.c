@@ -87,13 +87,18 @@ static void samples_xy(int s, uint32_t *sx, uint32_t *sy) {
 }
 
 /* A packaged texture's data comes from the offline packer, so its row pitch is fixed by the packer, not by the
-   width: the pitch is rounded up to 2048 bytes (32 GOBs). The 1920x1080 title art needs 120 GOBs per row and the
-   packer stores 128, the last 8 of every 64-block-row band being zero; without the padding the bands walk sideways
-   and the sampled picture shows the torn-paper collage cut by black steps. Sizes are unaffected elsewhere. */
+   width: the pitch is rounded up to 1024 bytes (16 GOBs). Verified against the true (decompressed) sizes of all
+   229 packaged BC textures: pitch = align_up(row_bytes, 1024) predicts every size exactly (with the layout's
+   block height). The old blanket 2048 rule only coincided for row_bytes whose 1K-block count is even (e.g. the
+   1920x1080 title art); [3,4]-layout textures with an odd count (1280x768 logo, 1040x350 covers, 768x3200 atlas)
+   were deswizzled with a 1024-byte-too-wide pitch, so their bands walked sideways (torn-paper collage, mirrored
+   white text, black cover). The 1024 rule predicts the true size of all 229 [3,4] textures exactly; the 8 small
+   [1,0]-layout textures (RLE strips etc., all rendering correctly today) keep the old 2048 rule. */
 uint32_t nvn_tex_bl_pitch(const nvn_texdesc *d, uint32_t row_bytes) {
     if (!d->pkg_block_h) return row_bytes;
     const char *o = cfg_get("XC2_PKG_STRIDE");                    // diagnostic: force the packaged pitch in bytes
     if (o && *o) { uint32_t v = (uint32_t)strtoul(o, NULL, 0); if (v >= row_bytes) return v; }
+    if (d->pkg_block_h == 4) return (row_bytes + 1023u) & ~1023u;  // packaged layout byte 0 == 3: 1024-byte pitch
     return (row_bytes + 2047u) & ~2047u;
 }
 

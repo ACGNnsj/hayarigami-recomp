@@ -1,0 +1,78 @@
+static HRESULT mf_in(Movie *m, const uint8_t *d, size_t n) {
+    IMFMediaBuffer *buf = NULL;
+    IMFSample *s = NULL;
+    HRESULT hr = MFCreateMemoryBuffer((DWORD)n, &buf);
+    if (SUCCEEDED(hr)) {
+        BYTE *p = NULL;
+        hr = buf->lpVtbl->Lock(buf, &p, NULL, NULL);
+        if (SUCCEEDED(hr)) {
+            memcpy(p, d, n);
+            hr = buf->lpVtbl->Unlock(buf);
+        }
+    }
+    if (SUCCEEDED(hr)) hr = buf->lpVtbl->SetCurrentLength(buf, (DWORD)n);
+    if (SUCCEEDED(hr)) hr = MFCreateSample(&s);
+    if (SUCCEEDED(hr)) hr = s->lpVtbl->AddBuffer(s, buf);
+    if (SUCCEEDED(hr)) hr = m->mf->lpVtbl->ProcessInput(m->mf, 0, s, 0);
+    if (s) s->lpVtbl->Release(s);
+    if (buf) buf->lpVtbl->Release(buf);
+    return hr;
+}
+static HRESULT mf_out(Movie *m, uint8_t *dst, int w, int h, int *got) {
+    *got = 0;
+    for (int k = 0; k < 4; k++) {
+        MFT_OUTPUT_DATA_BUFFER ob;
+        DWORD st = 0;
+        memset(&ob, 0, sizeof ob);
+        HRESULT hr = m->mf->lpVtbl->ProcessOutput(m->mf, 0, 1, &ob, &st);
+        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) return S_OK;
+        if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+            if (ob.pSample) ob.pSample->lpVtbl->Release(ob.pSample);
+            if (ob.pEvents) ob.pEvents->lpVtbl->Release(ob.pEvents);
+            if (!mf_set_output(m)) return E_FAIL;
+            continue;
+        }
+        if (FAILED(hr) || !ob.pSample) {
+            if (ob.pSample) ob.pSample->lpVtbl->Release(ob.pSample);
+            if (ob.pEvents) ob.pEvents->lpVtbl->Release(ob.pEvents);
+            return FAILED(hr) ? hr : S_OK;
+        }
+        IMFMediaBuffer *cb = NULL;
+        if (SUCCEEDED(ob.pSample->lpVtbl->ConvertToContiguousBuffer(ob.pSample, &cb))) {
+            IMF2DBuffer *b2 = NULL;
+            if (SUCCEEDED(cb->lpVtbl->QueryInterface(cb, &IID_IMF2DBuffer, (void **)&b2))) {
+                BYTE *p = NULL;
+                LONG pitch = 0;
+                HRESULT lhr = b2->lpVtbl->Lock2D(b2, &p, &pitch);
+                if (SUCCEEDED(lhr) && p && pitch >= w) {
+                    if (!*got) {
+                        for (int y = 0; y < h; y++) memcpy(dst + (size_t)y * w, p + (size_t)y * pitch, (size_t)w);
+                        uint8_t *uv = dst + (size_t)w * h;
+                        const uint8_t *sp = p + (size_t)pitch * h;
+                        for (int y = 0; y < h / 2; y++) memcpy(uv + (size_t)y * w, sp + (size_t)y * pitch, (size_t)w);
+                    }
+                    (*got)++;
+                }
+                if (SUCCEEDED(lhr)) b2->lpVtbl->Unlock2D(b2);
+                b2->lpVtbl->Release(b2);
+            } else {
+                BYTE *p = NULL;
+                DWORD len = 0;
+                if (SUCCEEDED(cb->lpVtbl->Lock(cb, &p, NULL, &len))) {
+                    if (p && len == (DWORD)frame_bytes(m)) {
+                        if (!*got) memcpy(dst, p, len);
+                        (*got)++;
+                    } else if (p && !m->mf_warned) {
+                        m->mf_warned = 1;
+                        rt_log("movie: H.264 output layout %lu bytes, stride unknown; frames dropped", (unsigned long)len);
+                    }
+                    cb->lpVtbl->Unlock(cb);
+                }
+            }
+            cb->lpVtbl->Release(cb);
+        }
+        ob.pSample->lpVtbl->Release(ob.pSample);
+        if (ob.pEvents) ob.pEvents->lpVtbl->Release(ob.pEvents);
+    }
+    return S_OK;
+}

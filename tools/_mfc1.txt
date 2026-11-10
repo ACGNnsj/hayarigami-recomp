@@ -1,0 +1,48 @@
+static uint64_t g_md_find_pointer, g_md_find_size;   // NnMediaData csd access (the concrete type behind Configure's format)
+/ An avcC record is the only place this title's SPS/PPS appear: its samples carry SEI and IDR slices only, and MF wants
+/ both NALs in the input type as an Annex B sequence header.
+static int mf_read_csd(Cpu *c, uint64_t md, Movie *m) {
+    uint64_t p = 0, n = 0;
+    if (!g_md_find_pointer || !g_md_find_size) return 0;
+    if (!(uint8_t)rt_call(c, g_md_find_pointer, 3, md, U("csd-0"), U(&p))) return 0;
+    if (!(uint8_t)rt_call(c, g_md_find_size, 3, md, U("csd-0"), U(&n))) return 0;
+    if (!p || n < 8 || n > 4096) return 0;
+    const uint8_t *d = (const uint8_t *)(uintptr_t)p;
+    uint8_t out[1024];
+    size_t o = 0;
+    int num = d[5] & 31;
+    size_t i = 6;
+    int seen_sps = 0, seen_pps = 0;
+    for (int k = 0; k < num && i + 2 <= n; k++) {
+        size_t len = ((size_t)d[i] << 8) | d[i + 1];
+        i += 2;
+        if (i + len > n || len < 2) return 0;
+        if (o + 4 + len > sizeof out) return 0;
+        out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
+        memcpy(out + o, d + i, len);
+        o += len;
+        i += len;
+        seen_sps = 1;
+    }
+    if (i >= n) return 0;
+    int np = d[i++];
+    for (int k = 0; k < np && i + 2 <= n; k++) {
+        size_t len = ((size_t)d[i] << 8) | d[i + 1];
+        i += 2;
+        if (i + len > n || len < 1) return 0;
+        if (o + 4 + len > sizeof out) return 0;
+        out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
+        memcpy(out + o, d + i, len);
+        o += len;
+        i += len;
+        seen_pps = 1;
+    }
+    if (!seen_sps || !seen_pps || !o) return 0;
+    free(m->mf_seq);
+    m->mf_seq = malloc(o);
+    if (!m->mf_seq) { m->mf_seq_len = m->mf_seq_cap = 0; return 0; }
+    memcpy(m->mf_seq, out, o);
+    m->mf_seq_len = m->mf_seq_cap = o;
+    m->mf_have_sps = m->mf_have_pps = 1;
+    return 1;
+}

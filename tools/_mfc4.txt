@@ -1,0 +1,39 @@
+static PlatMutex hint_mu = PLAT_MUTEX_INIT;
+static uint8_t hint_seq[1024];
+static size_t hint_len;
+
+// The fs layer hands over the head of every .mp4 it opens. The container's avcC is the only place this title's SPS and
+// PPS appear (its samples carry SEI and IDR slices only), and Configure's own MediaData is not readable from the host:
+// its concrete type here is not NnMediaData, so the accessors for csd-0 do not apply to it.
+void movie_note_media_bytes(const void *buf, size_t n) {
+    const uint8_t *d = buf;
+    if (!d || n < 8) return;
+    for (size_t i = 4; i + 4 < n; i++) {
+        if (memcmp(d + i, "avcC", 4)) continue;
+        size_t box = ((size_t)d[i - 4] << 24) | ((size_t)d[i - 3] << 16) | ((size_t)d[i - 2] << 8) | d[i - 1];
+        if (box < 8 || i - 4 + box > n) return;
+        uint8_t annexb[1024];
+        size_t olen = 0;
+        if (!mf_avcc_to_annexb(d + i + 4, box - 8, annexb, sizeof annexb, &olen)) return;
+        plat_mutex_lock(&hint_mu);
+        memcpy(hint_seq, annexb, olen);
+        hint_len = olen;
+        plat_mutex_unlock(&hint_mu);
+        rt_log("movie: the open movie's avcC gives %d bytes of SPS/PPS", (int)olen);
+        return;
+    }
+}
+
+static int mf_hint_avc(Movie *m) {
+    plat_mutex_lock(&hint_mu);
+    size_t n = hint_len;
+    uint8_t *seq = n ? malloc(n) : NULL;
+    if (seq) memcpy(seq, hint_seq, n);
+    plat_mutex_unlock(&hint_mu);
+    if (!seq) return 0;
+    free(m->mf_seq);
+    m->mf_seq = seq;
+    m->mf_seq_len = m->mf_seq_cap = n;
+    m->mf_have_sps = m->mf_have_pps = 1;
+    return 1;
+}

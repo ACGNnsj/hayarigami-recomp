@@ -25,6 +25,7 @@
 
 #include "fs.h"
 #include "host.h"
+#include "movie.h"
 #include "mods.h"
 #include "platform/platform.h"
 #include "prompts.h"
@@ -855,6 +856,8 @@ static uint32_t open_file(uint64_t *out, const char *path, int mode) {
     int err = 0;
     PlatFile *f = plat_fs_open(p, (mode & FS_OPEN_WRITE) != 0, &err);
     if (!f) return fs_result(err);
+
+
     plat_mutex_lock(&lock);
     for (int i = 0; i < NFILES; i++)
         if (!files[i].h) {
@@ -1094,9 +1097,32 @@ static void close_directory(uint64_t h) {
 // and ApplicationId are 8-byte structs passed in one register; Uid, ReadOption and WriteOption by reference.
 #define I32(i) ((int32_t)arg_x(c, i))
 #define I64(i) ((int64_t)arg_x(c, i))
+// The movie decoder takes its SPS/PPS from the container's avcC (its samples are Annex B with no headers of their
+// own); hand it the head of a .mp4 as it opens.
+static void note_movie(uint64_t h, const char *path) {
+    size_t plen = path ? strlen(path) : 0;
+    if (plen < 4 || strcmp(path + plen - 4, ".mp4")) return;   // ".mp4" is four bytes
+    enum { HEAD_CAP = 1 << 20 };
+    uint8_t *buf = malloc(HEAD_CAP);
+    if (!buf) return;
+    uint64_t n = 0;
+    uint32_t rr = read_file(&n, h, 0, buf, HEAD_CAP);
+    int got = !rr && movie_note_media_bytes(buf, (size_t)n);
+    rt_log("movie: head of %s -> r=%#x n=%llu avcC=%d", path, rr, (unsigned long long)n, got);
+    // The update's movies put moov after mdat, so their avcC sits in the tail rather than the head.
+    int64_t size = 0;
+    if (!got && !file_size(&size, h) && size > (int64_t)HEAD_CAP) {
+        uint64_t m = 0;
+        uint32_t tr = read_file(&m, h, size - (int64_t)HEAD_CAP, buf, HEAD_CAP);
+        got = !tr && movie_note_media_bytes(buf, (size_t)m);
+        rt_log("movie: tail of %s -> r=%#x n=%llu avcC=%d", path, tr, (unsigned long long)m, got);
+    }
+    free(buf);
+}
 static void ov_open_file(Cpu *c) {
     const char *path = arg_p(c, 1);
     uint32_t r = open_file(arg_p(c, 0), arg_p(c, 1), I32(2));
+    if (!r && arg_p(c, 0)) note_movie(*(uint64_t *)arg_p(c, 0), path);
     static volatile int32_t n;
     int slot = plat_inc32(&n);
     if (slot <= 400)

@@ -159,6 +159,7 @@ typedef struct {
     uint64_t fb_snaps;                                         // targets copied for the draw that samples them itself
 } VkExecFrame;
 extern VkExecFrame vk_exec_frame;
+void vk_exec_draw_only_reset(void);   // next frame's DRAW_ONLY filter counts from 1 again
 void vk_exec_frame_written(const tex_t *t);                    // vk_texture_gpu_written: t rendered or copied into
 uint64_t vk_exec_recording_fence(void);                        // fence of the submission this thread records, else 0
 void vk_exec_frame_log(const tex_t *presented, uint64_t frame);

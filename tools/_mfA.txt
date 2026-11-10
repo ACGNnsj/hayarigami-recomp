@@ -1,0 +1,35 @@
+static int mf_set_output(Movie *m) {
+    // The decoder fixes its own output geometry (a 1080-line stream comes back as 1920x1088 and is cropped on
+    // display), so the configured size is only a preference. Take the first NV12 type it offers and remember the
+    // size it chose, because the copy-out below needs the coded height, not the visible one.
+    for (DWORD i = 0; i < 32; i++) {
+        IMFMediaType *t = NULL;
+        if (FAILED(m->mf->lpVtbl->GetOutputAvailableType(m->mf, 0, i, &t)) || !t) break;
+        GUID sub;
+        UINT64 fs = 0;
+        int nv12 = SUCCEEDED(t->lpVtbl->GetGUID(t, &MF_MT_SUBTYPE, &sub)) && !memcmp(&sub, &MFVideoFormat_NV12, sizeof sub);
+        if (nv12 && SUCCEEDED(t->lpVtbl->GetUINT64(t, &MF_MT_FRAME_SIZE, &fs))) {
+            int w = (int)(fs >> 32), h = (int)(fs & 0xffffffff);
+            if (SUCCEEDED(m->mf->lpVtbl->SetOutputType(m->mf, 0, t, 0))) {
+                m->mf_out_w = w;
+                m->mf_out_h = h;
+                t->lpVtbl->Release(t);
+                if (w != m->w || h != m->h) rt_log("movie: H.264 output %dx%d for a %dx%d stream", w, h, m->w, m->h);
+                return 1;
+            }
+        }
+        t->lpVtbl->Release(t);
+    }
+    // No enumerable NV12: fall back to the sizes this decoder family accepts, then to the announced frame size.
+    IMFMediaType *out = mf_make_out(m->w, m->h);
+    if (out) {
+        if (SUCCEEDED(m->mf->lpVtbl->SetOutputType(m->mf, 0, out, 0))) {
+            out->lpVtbl->Release(out);
+            m->mf_out_w = m->w;
+            m->mf_out_h = m->h;
+            return 1;
+        }
+        out->lpVtbl->Release(out);
+    }
+    return 0;
+}

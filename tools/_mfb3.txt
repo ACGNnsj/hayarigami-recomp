@@ -1,0 +1,36 @@
+static void mf_collect_seq(Movie *m, const uint8_t *d, size_t n) {
+    // Annex B walk: stash the first SPS (type 7) and PPS (type 8), each with a 4-byte start code, for the MFT's
+    // sequence header. A packet holds only a handful of NALs; beyond 64 start codes the rest is ignored.
+    size_t offs[64];
+    int nn = 0;
+    for (size_t i = 0; i + 2 < n && nn < 64; i++)
+        if (!d[i] && !d[i + 1] && d[i + 2] == 1) { offs[nn++] = i; i += 2; }
+    for (int k = 0; k < nn; k++) {
+        size_t hs = offs[k] + 3;
+        if (hs >= n) continue;
+        size_t ne = k + 1 < nn ? offs[k + 1] : n;
+        while (ne > hs + 1 && !d[ne - 1]) ne--;
+        int type = d[hs] & 0x1f;
+        if (type != 7 && type != 8) continue;
+        if ((type == 7 && m->mf_have_sps) || (type == 8 && m->mf_have_pps)) continue;
+        size_t len = ne - hs;
+        if (!len || len > 256) continue;
+        if (m->mf_seq_len + 4 + len > m->mf_seq_cap) {
+            size_t cap = m->mf_seq_cap ? m->mf_seq_cap * 2 : 512;
+            while (cap < m->mf_seq_len + 4 + len) cap *= 2;
+            if (cap > 65536) return;
+            uint8_t *nb = realloc(m->mf_seq, cap);
+            if (!nb) return;
+            m->mf_seq = nb;
+            m->mf_seq_cap = cap;
+        }
+        m->mf_seq[m->mf_seq_len++] = 0;
+        m->mf_seq[m->mf_seq_len++] = 0;
+        m->mf_seq[m->mf_seq_len++] = 0;
+        m->mf_seq[m->mf_seq_len++] = 1;
+        memcpy(m->mf_seq + m->mf_seq_len, d + hs, len);
+        m->mf_seq_len += len;
+        if (type == 7) m->mf_have_sps = 1;
+        else m->mf_have_pps = 1;
+    }
+}

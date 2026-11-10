@@ -1,0 +1,51 @@
+--- build/gen-main/main/main_0023.c.bak-diag	2026-11-09 03:21:39.097196700 +0800
++++ build/gen-main/main/main_0023.c	2026-11-10 13:55:10.749740700 +0800
+@@ -47191,6 +47191,7 @@
+     c->x[19] = x19; c->x[20] = x20; c->x[30] = x30; return;
+ }
+ 
++void rt_log(const char *fmt, ...);
+ void f_70002bfd4c(Cpu *c) {
+     FN_ENTER(0x70002bfd4cull);
+     Flags F = {0};
+@@ -47226,6 +47227,7 @@
+     x0 = (uint64_t)(x19 + 0x48ull);
+     { uint64_t ea = x19 + 0x4d2ull; ST8(ea, (uint32_t)x8); }
+     x30 = 0x70002bfdc0ull; c->x[0] = x0; c->x[8] = x8; c->x[19] = x19; c->x[20] = x20; c->x[30] = x30; f_70002ca230(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
++    { uint64_t eaS = x19 + 0x48ull; uint64_t wS = LD64(eaS); rt_log("movie: stop signal obj=%llx ev48=%llx\n", (unsigned long long)x19, (unsigned long long)wS); }
+     { uint64_t ea = x19 + 0x6e0ull; uint64_t v = LD64(ea); x8 = (uint64_t)(v); }
+     { uint64_t ea = x8 + 0x0ull; uint64_t v = LD64(ea); x0 = (uint64_t)(v); }
+     x30 = 0x70002bfdccull; c->x[0] = x0; c->x[8] = x8; c->x[30] = x30; f_70002c9920(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
+@@ -47958,6 +47960,7 @@
+     c->x[0] = x0; c->x[8] = x8; c->x[19] = x19; c->x[30] = x30; c->sp = sp_; return;
+ }
+ 
++void rt_log(const char *fmt, ...);
+ void f_70002c07d4(Cpu *c) {
+     FN_ENTER(0x70002c07d4ull);
+     Flags F = {0};
+@@ -48168,6 +48171,8 @@
+     x30 = 0x70002c0accull; c->x[0] = x0; c->x[8] = x8; c->x[30] = x30; f_70002ca2c0(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
+     goto L_70002c08dc;
+ L_70002c0ad0:;
++    { uint64_t ea9 = sp_ + 0x88ull; uint64_t nn = LD32(ea9); uint64_t ea8 = x23 + 0x38ull; uint64_t sobj = LD64(ea8); rt_log("movie: pump flush obj=%llx S=%llx n=%u\n", (unsigned long long)x23, (unsigned long long)sobj, (unsigned)nn); }
++    { uint64_t q19 = c->x[19]; uint32_t qc = LD32(q19+44); uint32_t qcap = LD32(q19+40); uint32_t spc = (qcap > qc) ? (qcap - qc) : 0; if (spc == 0) { goto L_70002c08d4; } uint64_t eaN = sp_ + 0x88ull; uint32_t n0 = LD32(eaN); uint32_t nmax = spc - 1u; if (n0 > nmax) { ST32(eaN, nmax); } }
+     { uint64_t ea = x23 + 0x508ull; uint64_t v = LD64(ea); x0 = (uint64_t)(v); }
+     { uint64_t ea = sp_ + 0x8cull; uint64_t v = LD32(ea); c->x[22] = (uint64_t)(v); }
+     x30 = 0x70002c0adcull; c->x[0] = x0; c->x[30] = x30; f_70002c9630(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
+@@ -48211,6 +48216,7 @@
+     x30 = 0x70002c0b6cull; c->x[0] = x0; c->x[1] = x1; c->x[30] = x30; f_70002ca220(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
+     goto L_70002c0b10;
+ L_70002c0b70:;
++    { uint64_t q19b = c->x[19]; uint32_t qcb = LD32(q19b+44); uint32_t qcapb = LD32(q19b+40); uint32_t spcb = (qcapb > qcb) ? (qcapb - qcb) : 0; if (spcb == 0) { goto L_70002c0958; } uint64_t eaNb = sp_ + 0x8cull; uint32_t n0b = LD32(eaNb); uint32_t nmaxb = spcb - 1u; if (n0b > nmaxb) { ST32(eaNb, nmaxb); } }
+     { uint64_t ea = x23 + 0x510ull; uint64_t v = LD64(ea); x0 = (uint64_t)(v); }
+     { uint64_t ea = sp_ + 0x40ull; uint64_t v = LD32(ea); c->x[28] = (uint64_t)(v); }
+     x30 = 0x70002c0b7cull; c->x[0] = x0; c->x[30] = x30; f_70002c9630(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
+@@ -48296,6 +48302,7 @@
+     { uint64_t ea = x23 + 0x491ull; ST8(ea, (uint32_t)c->x[24]); }
+     goto L_70002c0c44;
+ L_70002c0ca4:;
++    { rt_log("movie: pump exit obj=%llx\n", (unsigned long long)x23); }
+     x0 = (uint64_t)(x23 + 0x48ull);
+     x30 = 0x70002c0cacull; c->x[0] = x0; c->x[8] = x8; c->x[30] = x30; f_70002ca2c0(c); x0 = c->x[0]; x1 = c->x[1]; x8 = c->x[8]; x30 = c->x[30];
+     { uint64_t ea = sp_ + 0x10ull; uint64_t v = LD64(ea); x0 = (uint64_t)(v); }

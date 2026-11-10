@@ -1,0 +1,75 @@
+// The avcC record of the movie the game has open. Configure's MediaData is not readable from the host (its concrete
+// type is not NnMediaData here), and this title's samples carry SEI and IDR slices only, so the SPS/PPS come from the
+// container: the fs layer reports every .mp4 it opens, and the first of those with a readable avcC seeds the next AVC
+// decoder. The three movies do not share one record (FOAF1/2 are Main, FOAF3 is High), so the path matters.
+static PlatMutex hint_mu = PLAT_MUTEX_INIT;
+static char hint_path[512];
+
+void movie_note_media_path(const char *host_path) {
+    if (!host_path || !*host_path) return;
+    plat_mutex_lock(&hint_mu);
+    snprintf(hint_path, sizeof hint_path, "%s", host_path);
+    plat_mutex_unlock(&hint_mu);
+}
+
+static int mf_avcc_to_annexb(const uint8_t *d, size_t n, uint8_t *out, size_t cap, size_t *olen) {
+    *olen = 0;
+    if (n < 8 || d[0] != 1) return 0;
+    int num = d[5] & 31, sps = 0, pps = 0;
+    size_t o = 0, i = 6;
+    for (int k = 0; k < num && i + 2 <= n; k++) {
+        size_t len = ((size_t)d[i] << 8) | d[i + 1];
+        i += 2;
+        if (i + len > n || len < 2 || o + 4 + len > cap) return 0;
+        out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
+        memcpy(out + o, d + i, len);
+        o += len; i += len; sps = 1;
+    }
+    if (i >= n) return 0;
+    int np = d[i++];
+    for (int k = 0; k < np && i + 2 <= n; k++) {
+        size_t len = ((size_t)d[i] << 8) | d[i + 1];
+        i += 2;
+        if (i + len > n || len < 1 || o + 4 + len > cap) return 0;
+        out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
+        memcpy(out + o, d + i, len);
+        o += len; i += len; pps = 1;
+    }
+    if (!sps || !pps || !o) return 0;
+    *olen = o;
+    return 1;
+}
+
+// avcC sits in moov, which these files write first (faststart); the box is scanned for instead of parsed.
+static int mf_hint_avc(Movie *m) {
+    char path[512];
+    plat_mutex_lock(&hint_mu);
+    snprintf(path, sizeof path, "%s", hint_path);
+    plat_mutex_unlock(&hint_mu);
+    if (!*path) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    enum { HINT_CAP = 1 << 20 };
+    uint8_t *buf = malloc(HINT_CAP);
+    size_t n = buf ? fread(buf, 1, HINT_CAP, f) : 0;
+    fclose(f);
+    int ok = 0;
+    for (size_t i = 4; buf && i + 4 < n && !ok; i++)
+        if (!memcmp(buf + i, "avcC", 4)) {
+            size_t box = ((size_t)buf[i - 4] << 24) | ((size_t)buf[i - 3] << 16) | ((size_t)buf[i - 2] << 8) | buf[i - 1];
+            if (box < 8 || i - 4 + box > n) continue;
+            uint8_t annexb[1024];
+            size_t olen = 0;
+            if (!mf_avcc_to_annexb(buf + i + 4, box - 8, annexb, sizeof annexb, &olen)) continue;
+            free(m->mf_seq);
+            m->mf_seq = malloc(olen);
+            if (!m->mf_seq) { m->mf_seq_len = m->mf_seq_cap = 0; continue; }
+            memcpy(m->mf_seq, annexb, olen);
+            m->mf_seq_len = m->mf_seq_cap = olen;
+            m->mf_have_sps = m->mf_have_pps = 1;
+            ok = 1;
+            rt_log("movie: SPS/PPS from the avcC of %s (%zu bytes)", path, olen);
+        }
+    free(buf);
+    return ok;
+}

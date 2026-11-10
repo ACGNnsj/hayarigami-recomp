@@ -1,0 +1,20 @@
+// ---- Media Foundation H.264 (video/avc, Annex B) ----
+// This title's movies are H.264 in Annex B byte-stream framing (00 00 00 01 start codes; each packet holds SEI, the
+// SPS/PPS headers and slices), which the inbox software H.264 decoder MFT takes directly. The AAC track stays
+// stubbed (raw LATM, which the AAC MFT does not parse). Output is NV12, copied row by row because the decoder's
+// stride can exceed the width. Up to two trailing frames are lost: the MFT is not flushed at end of stream (its
+// delayed frames would arrive after the game tears the movie down anyway).
+static PlatMutex mf_init_mu = PLAT_MUTEX_INIT;
+static int mf_started;
+static void mf_startup(void) {
+    // MFStartup once per process; CoInitializeEx on every thread that touches COM (the configuring guest thread
+    // creates the MFT, the worker feeds it, so both initialise; a repeated call is a benign S_FALSE).
+    plat_mutex_lock(&mf_init_mu);
+    if (!mf_started) {
+        HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+        if (FAILED(hr)) rt_fatal("movie: MFStartup: %#lx", (unsigned long)hr);
+        mf_started = 1;
+    }
+    plat_mutex_unlock(&mf_init_mu);
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+}

@@ -1,0 +1,2 @@
+rep("stub ? \"stub\" : \"VP9\",", "stub ? \"stub\" : type == MOVIE_TYPE_AVC ? \"AVC\" : \"VP9\",")
+rep("if (!mime || strcmp(mime, \"video/x-vnd.on2.vp9\") || w <= 0", "if ((!mime || (strcmp(mime, \"video/x-vnd.on2.vp9\") && mime && strcmp(mime, \"video/avc\"))) || w <= 0")

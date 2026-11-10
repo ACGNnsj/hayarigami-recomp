@@ -49,6 +49,7 @@
 
 int vk_dump_armed;
 static uint64_t dump_frame, log_from;   // log_from: XC2_DUMP_LOG, first frame logged to passes.txt without images
+static int dump_wanted_now;   // set while copying a DUMP_TEX-wanted texture: the log-range size cap does not apply
 static int64_t dump_at_us;   // XC2_DUMP=w<seconds>: dump the frame after the world clock (frame_step_world_us) reaches this
 static char dir[400];
 static FILE *passes_f, *images_f;
@@ -224,6 +225,12 @@ static uint8_t u8(float x) { return x > 0 ? x < 1 ? (uint8_t)(x * 255.f + .5f) :
 static void write_images(const Job *j) {
     uint32_t pw = j->w * j->d, ph = j->h;
     uint64_t n = (uint64_t)pw * ph;
+    if (strstr(j->name, "_blocks")) {  // raw blocks for offline BC decode (PNG scaling destroys data)
+        char bpath[600];
+        snprintf(bpath, sizeof bpath, "%s/%s.bin", dir, j->name);
+        FILE *bf = fopen(bpath, "wb");
+        if (bf) fwrite(j->map, j->f->bytes, (size_t)n, bf), fclose(bf);
+    }
     float *px = malloc(n * 16);
     uint8_t *out = malloc(n * 4);
     if (!px || !out) rt_fatal("vk_dump: out of memory for %s", j->name);
@@ -297,7 +304,8 @@ static const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAs
                                const char *name) {
     const Fmt *f = fmt_of(vf);
     if (!f) return "format not decoded";
-    if (__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1 != dump_frame && (uint64_t)w * h * d > 65536)
+    if (!dump_wanted_now && __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1 != dump_frame &&
+        (uint64_t)w * h * d > 65536)
         return "logged frame, large image";
     if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
     else if (aspect != VK_IMAGE_ASPECT_COLOR_BIT) return "stencil only";
@@ -498,20 +506,23 @@ static uint64_t shader_hash(const GfxShader *s) {
 typedef struct { VkPipeline p; uint64_t th; int draws; char *text; } Ent;
 static Ent ents[MAX_ENTS];
 static int nents, ents_over, pass_draws;
-typedef struct { VkImage image; VkFormat format; uint32_t w, h, d; int id, is2d; } Lut;
+typedef struct { VkImage image; VkFormat format; uint32_t w, h, d; int id, is2d, wanted; } Lut;
 static Lut luts[MAX_LUTS];          // queued for the next pass end or dispatch
 static int nluts;
 static VkImage luts_done[MAX_LUTS];
+static uint32_t luts_done_ups[MAX_LUTS];   // uploads generation: a recycled image with fresh content is copied again
 static int nluts_done;
 
-static void queue_lut(const VkTexImage *t, int id) {
-    if (frame_now() != dump_frame) return;
+static void queue_lut(const VkTexImage *t, int id, int force, uint32_t ups) {
+    if (!force && frame_now() != dump_frame) return;
     for (int i = 0; i < nluts_done; i++)
-        if (luts_done[i] == t->image) return;
+        if (luts_done[i] == t->image && luts_done_ups[i] == ups) return;
     if (nluts_done == MAX_LUTS) return;
-    luts_done[nluts_done++] = t->image;
+    luts_done[nluts_done] = t->image;
+    luts_done_ups[nluts_done] = ups;
+    nluts_done++;
     luts[nluts++] = (Lut){t->image, t->format, t->width, t->height, t->type == VK_IMAGE_TYPE_3D ? t->depth : 1, id,
-                          t->type != VK_IMAGE_TYPE_3D};
+                          t->type != VK_IMAGE_TYPE_3D, force};
 }
 
 // The uncompressed format of a BC format's block size, UNDEFINED for other formats: a BC texture is dumped as its raw
@@ -532,9 +543,11 @@ static void flush_luts(VkExec *ex, int n) {
         VkFormat bf = block_format(l->format);
         snprintf(name, sizeof name, "pass_%04d_%s%d_%ux%ux%u_%d_%s%s", n, l->is2d ? "tex" : "lut", l->id, l->w, l->h, l->d,
                  (int)l->format, fmt_name(l->format, fn), bf ? "_blocks" : "");
+        dump_wanted_now = l->wanted;
         const char *why = bf ? copy_region(ex, l->image, bf, VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 0,
                                            (VkExtent3D){l->w, l->h, l->d}, (l->w + 3) / 4, (l->h + 3) / 4, l->d, name)
                              : copy_out(ex, l->image, l->format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, l->w, l->h, l->d, name);
+        dump_wanted_now = 0;
         fprintf(passes_f, "  %s tex %d -> %s.png%s%s\n", l->is2d ? "2D" : "3D", l->id, name, why ? " skipped: " : "",
                 why ? why : "");
     }
@@ -648,13 +661,13 @@ static void describe_bindings(Str *b, const VkExec *ex, const VkPipeInfo *info) 
             for (int k = 0; k < nwant_tex; k++)
                 wanted |= want_tex[k][1] ? want_tex[k][0] == t->width && want_tex[k][1] == t->height
                                          : want_tex[k][0] == (uint32_t)NVN_HANDLE_TEX(h);
-            if (t->type == VK_IMAGE_TYPE_3D) queue_lut(t, NVN_HANDLE_TEX(h));
-            else if (wanted && t->type == VK_IMAGE_TYPE_2D && t->samples == 1) queue_lut(t, NVN_HANDLE_TEX(h));
+            if (t->type == VK_IMAGE_TYPE_3D) queue_lut(t, NVN_HANDLE_TEX(h), 0, ups);
+            else if (wanted && t->type == VK_IMAGE_TYPE_2D && t->samples == 1) queue_lut(t, NVN_HANDLE_TEX(h), 1, ups);
             else if (!img && t->type == VK_IMAGE_TYPE_2D && t->samples == 1 && (uint64_t)t->width * t->height <= TEX2D_CAP &&
                      (t->format == VK_FORMAT_R8_UNORM || t->format == VK_FORMAT_R8G8_UNORM ||
                       t->format == VK_FORMAT_R8G8B8A8_UNORM || t->format == VK_FORMAT_R8G8B8A8_SRGB ||
                       t->format == VK_FORMAT_B8G8R8A8_UNORM || t->format == VK_FORMAT_B8G8R8A8_SRGB))
-                queue_lut(t, NVN_HANDLE_TEX(h));
+                queue_lut(t, NVN_HANDLE_TEX(h), 0, ups);
         }
     }
 }

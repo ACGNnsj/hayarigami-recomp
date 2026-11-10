@@ -1,0 +1,21 @@
+static IMFMediaType *mf_make_in(int w, int h, const uint8_t *seq, size_t seqlen) {
+    IMFMediaType *t = NULL;
+    if (FAILED(MFCreateMediaType(&t))) return NULL;
+    HRESULT hr = t->lpVtbl->SetGUID(t, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetGUID(t, &MF_MT_SUBTYPE, &MFVideoFormat_H264);
+    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT64(t, &MF_MT_FRAME_SIZE, ((uint64_t)(uint32_t)w << 32) | (uint32_t)h);
+    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+    if (SUCCEEDED(hr) && seq && seqlen) hr = t->lpVtbl->SetBlob(t, &MF_MT_MPEG_SEQUENCE_HEADER, seq, (UINT32)seqlen);
+    if (FAILED(hr)) { t->lpVtbl->Release(t); return NULL; }
+    return t;
+}
+static IMFMediaType *mf_make_out(int w, int h) {
+    IMFMediaType *t = NULL;
+    if (FAILED(MFCreateMediaType(&t))) return NULL;
+    HRESULT hr = t->lpVtbl->SetGUID(t, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetGUID(t, &MF_MT_SUBTYPE, &MFVideoFormat_NV12);
+    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT64(t, &MF_MT_FRAME_SIZE, ((uint64_t)(uint32_t)w << 32) | (uint32_t)h);
+    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+    if (FAILED(hr)) { t->lpVtbl->Release(t); return NULL; }
+    return t;
+}

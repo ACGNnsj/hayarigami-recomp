@@ -1,0 +1,72 @@
+static HRESULT mf_out(Movie *m, uint8_t *dst, int w, int h, int *got) {
+    *got = 0;
+    MFT_OUTPUT_STREAM_INFO oi;
+    memset(&oi, 0, sizeof oi);
+    if (FAILED(m->mf->lpVtbl->GetOutputStreamInfo(m->mf, 0, &oi))) return E_FAIL;
+    for (int k = 0; k < 4; k++) {
+        MFT_OUTPUT_DATA_BUFFER ob;
+        DWORD st = 0;
+        IMFSample *own = NULL;
+        IMFMediaBuffer *ownb = NULL;
+        memset(&ob, 0, sizeof ob);
+        // This decoder allocates nothing for the caller, and ProcessOutput answers E_INVALIDARG when pSample is
+        // NULL, so a sample has to be handed in whenever the stream info does not promise one.
+        if (!(oi.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)) {
+            DWORD cap = oi.cbSize ? oi.cbSize : (DWORD)((size_t)m->w * m->h * 3 / 2 + 8192);
+            if (SUCCEEDED(MFCreateSample(&own)) && SUCCEEDED(MFCreateMemoryBuffer(cap, &ownb)) &&
+                SUCCEEDED(own->lpVtbl->AddBuffer(own, ownb)))
+                ob.pSample = own;
+        }
+        HRESULT hr = m->mf->lpVtbl->ProcessOutput(m->mf, 0, 1, &ob, &st);
+        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
+            if (own) own->lpVtbl->Release(own);
+            if (ownb) ownb->lpVtbl->Release(ownb);
+            return S_OK;
+        }
+        if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+            if (own) own->lpVtbl->Release(own);
+            if (ownb) ownb->lpVtbl->Release(ownb);
+            if (ob.pSample) ob.pSample->lpVtbl->Release(ob.pSample);
+            if (ob.pEvents) ob.pEvents->lpVtbl->Release(ob.pEvents);
+            if (!mf_set_output(m)) return E_FAIL;
+            continue;
+        }
+        if (FAILED(hr) || !ob.pSample) {
+            if (own) own->lpVtbl->Release(own);
+            if (ownb) ownb->lpVtbl->Release(ownb);
+            if (ob.pSample) ob.pSample->lpVtbl->Release(ob.pSample);
+            if (ob.pEvents) ob.pEvents->lpVtbl->Release(ob.pEvents);
+            return FAILED(hr) ? hr : S_OK;
+        }
+        int sw = m->mf_out_w > 0 ? m->mf_out_w : w;
+        int sh = m->mf_out_h > 0 ? m->mf_out_h : h;
+        IMFMediaBuffer *cb = NULL;
+        if (SUCCEEDED(ob.pSample->lpVtbl->ConvertToContiguousBuffer(ob.pSample, &cb))) {
+            IMF2DBuffer *b2 = NULL;
+            if (SUCCEEDED(cb->lpVtbl->QueryInterface(cb, &IID_IMF2DBuffer, (void **)&b2))) {
+                BYTE *p = NULL;
+                LONG pitch = 0;
+                HRESULT lhr = b2->lpVtbl->Lock2D(b2, &p, &pitch);
+                if (SUCCEEDED(lhr) && p && pitch >= sw) {
+                    if (!*got) {
+                        int cw = sw < w ? sw : w;
+                        for (int y = 0; y < h; y++) memcpy(dst + (size_t)y * w, p + (size_t)y * pitch, (size_t)cw);
+                        uint8_t *uv = dst + (size_t)w * h;
+                        const uint8_t *sp = p + (size_t)pitch * sh;
+                        int ch = h / 2 < sh / 2 ? h / 2 : sh / 2;
+                        for (int y = 0; y < ch; y++) memcpy(uv + (size_t)y * w, sp + (size_t)y * pitch, (size_t)cw);
+                    }
+                    (*got)++;
+                }
+                if (SUCCEEDED(lhr)) b2->lpVtbl->Unlock2D(b2);
+                b2->lpVtbl->Release(b2);
+            }
+            cb->lpVtbl->Release(cb);
+        }
+        if (ob.pSample != own && ob.pSample) ob.pSample->lpVtbl->Release(ob.pSample);
+        if (own) own->lpVtbl->Release(own);
+        if (ownb) ownb->lpVtbl->Release(ownb);
+        if (ob.pEvents) ob.pEvents->lpVtbl->Release(ob.pEvents);
+    }
+    return S_OK;
+}

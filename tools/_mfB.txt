@@ -1,0 +1,26 @@
+static HRESULT mf_in(Movie *m, const uint8_t *d, size_t n) {
+    // Samples carry slices only, so the decoder gets the sequence header once, in band, ahead of the first sample.
+    // MF_MT_MPEG_SEQUENCE_HEADER on the input type is NOT equivalent: with it this decoder consumes every packet and
+    // emits no frame at all, while the same NALs in band decode immediately.
+    size_t pre = !m->mf_fed_first ? m->mf_seq_len : 0;
+    IMFMediaBuffer *buf = NULL;
+    IMFSample *s = NULL;
+    HRESULT hr = MFCreateMemoryBuffer((DWORD)(n + pre), &buf);
+    if (SUCCEEDED(hr)) {
+        BYTE *p = NULL;
+        hr = buf->lpVtbl->Lock(buf, &p, NULL, NULL);
+        if (SUCCEEDED(hr)) {
+            if (pre) memcpy(p, m->mf_seq, pre);
+            memcpy(p + pre, d, n);
+            hr = buf->lpVtbl->Unlock(buf);
+        }
+    }
+    if (SUCCEEDED(hr)) hr = buf->lpVtbl->SetCurrentLength(buf, (DWORD)(n + pre));
+    if (SUCCEEDED(hr)) hr = MFCreateSample(&s);
+    if (SUCCEEDED(hr)) hr = s->lpVtbl->AddBuffer(s, buf);
+    if (SUCCEEDED(hr)) hr = m->mf->lpVtbl->ProcessInput(m->mf, 0, s, 0);
+    if (SUCCEEDED(hr)) m->mf_fed_first = 1;
+    if (s) s->lpVtbl->Release(s);
+    if (buf) buf->lpVtbl->Release(buf);
+    return hr;
+}

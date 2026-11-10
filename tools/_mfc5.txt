@@ -1,0 +1,27 @@
+static int mf_avcc_to_annexb(const uint8_t *d, size_t n, uint8_t *out, size_t cap, size_t *olen) {
+    *olen = 0;
+    if (n < 8 || d[0] != 1) return 0;
+    int num = d[5] & 31, sps = 0, pps = 0;
+    size_t o = 0, i = 6;
+    for (int k = 0; k < num && i + 2 <= n; k++) {
+        size_t len = ((size_t)d[i] << 8) | d[i + 1];
+        i += 2;
+        if (i + len > n || len < 2 || o + 4 + len > cap) return 0;
+        out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
+        memcpy(out + o, d + i, len);
+        o += len; i += len; sps = 1;
+    }
+    if (i >= n) return 0;
+    int np = d[i++];
+    for (int k = 0; k < np && i + 2 <= n; k++) {
+        size_t len = ((size_t)d[i] << 8) | d[i + 1];
+        i += 2;
+        if (i + len > n || len < 1 || o + 4 + len > cap) return 0;
+        out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
+        memcpy(out + o, d + i, len);
+        o += len; i += len; pps = 1;
+    }
+    if (!sps || !pps || !o) return 0;
+    *olen = o;
+    return 1;
+}

@@ -1,0 +1,13 @@
+    if (m->mf_is_avc) {
+        // Configure's format is the SDK's NnMediaData concrete type; calling its accessors on anything else reads
+        // fields that are not there (the vtable tells the two apart).
+        uint64_t tv = ldr_symbol("_ZTVN5movie11NnMediaData");
+        uint64_t want = tv ? tv + 0x10 : 0, got = LD64(md);
+        if (want && got == want) {
+            if (!mf_read_csd(c, md, m))
+                rt_log("movie: csd-0 avcC unusable; the SPS/PPS are collected from the stream instead");
+        } else {
+            rt_log("movie: Configure format vptr %#llx is not NnMediaData (%#llx); the SPS/PPS are collected from the stream instead",
+                   (unsigned long long)got, (unsigned long long)want);
+        }
+    }

@@ -1,0 +1,501 @@
+--- framework/runtime/ov_movie.c.bak-aac	2026-11-10 14:48:36.053084000 +0800
++++ framework/runtime/ov_movie.c	2026-11-10 16:09:16.246363400 +0800
+@@ -38,6 +38,8 @@
+ #include <mferror.h>
+ #include <mfidl.h>
+ #include <mftransform.h>
++#include <initguid.h>
++#include <wmcodecdsp.h>
+ #include <objbase.h>
+ // CLSID_CMSH264DecoderMFT ({62CE7E72-4C71-4D20-B15D-452831A87D9D}, verified in HKCR), defined here: the GUID is absent from
+ // libmfuuid.a (which holds only the older CLSID_MSH264DecoderMFT).
+@@ -82,6 +84,9 @@
+     int vpx_live;
+     IMFTransform *mf;
+     int mf_live, mf_is_avc, mf_ready, mf_broken, mf_have_sps, mf_have_pps, mf_pre, mf_thread_init, mf_warned;
++    IMFTransform *aac;
++    int aac_live, aac_ready, aac_broken, mf_is_aac, aac_thread_init, aac_fed_first, aac_smc_done;
++    int aac_rate, aac_ch, aac_profile, aac_freq_idx;
+     int mf_out_w, mf_out_h, mf_fed_first;   // geometry the decoder chose, and whether it has seen its first sample
+     uint8_t *mf_seq;
+     size_t mf_seq_len, mf_seq_cap;
+@@ -228,7 +233,7 @@
+     for (int i = 0; i < s->n; i++) rt_call(c, G.signal_event, 1, s->ev[i]);
+ }
+ 
+-static int frame_bytes(const Movie *m) { return m->w * m->h + (m->w / 2) * (m->h / 2) * 2; }
++static int frame_bytes(const Movie *m) { return m->mf_is_aac ? 32768 : m->w * m->h + (m->w / 2) * (m->h / 2) * 2; }
+ 
+ // I420 (libvpx) -> packed NV12: Y rows, then rows of interleaved U, V.
+ static void to_nv12(const vpx_image_t *img, uint8_t *dst, int w, int h) {
+@@ -273,6 +278,290 @@
+     m->decoded[m->ndecoded++] = (Ready){slot, flags, time};
+ }
+ 
++// ---- Media Foundation AAC (audio, LATM/LOAS -> ADTS) ----
++// The audio track arrives as LATM AudioMuxElements, usually inside the 3-byte
++// LOAS sync layer; the AAC MFT only takes ADTS, so every packet is reframed:
++// LOAS/LATM headers are stripped to the raw frame and a 7-byte ADTS header
++// (built from the AudioSpecificConfig) is prepended. The ASC rides in the first
++// StreamMuxConfig; until one parses, the esds ASC (AAC-LC, 48 kHz, stereo)
++// is the default. Decoded PCM goes through the normal out[] slots, so the game
++// acquires and plays it and the audio side drains on its own.
++#define AAC_PCM_CAP (32768)
++static const int aac_freq_table[13] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350 };
++static void mf_startup(void);
++static int aac_freq_idx(int rate) {
++    int best = 3, bd = 0x7fffffff;
++    for (int i = 0; i < 13; i++) { int d = rate - aac_freq_table[i]; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
++    return best;
++}
++typedef struct { const uint8_t *p, *end; unsigned bit; } AacBits;
++static int aac_get(AacBits *b, int n) {
++    unsigned v = 0;
++    for (int i = 0; i < n; i++) {
++        if (b->p >= b->end) return -1;
++        v = (v << 1) | (unsigned)((b->p[0] >> (7 - b->bit)) & 1);
++        if (++b->bit == 8) { b->p++; b->bit = 0; }
++    }
++    return (int)v;
++}
++static int aac_loas(const uint8_t *d, size_t n, const uint8_t **pay, size_t *paylen) {
++    if (n < 3 || d[0] != 0x56 || (d[1] & 0xF0) != 0xE0) return 0;
++    size_t len = ((size_t)(d[1] & 0x1F) << 8) | d[2];
++    if (len == 0 || 3 + len > n) return 0;
++    *pay = d + 3; *paylen = len;
++    return 1;
++}
++static int aac_smc_full(AacBits *b, int *profile, int *freq_idx, int *ch) {
++    if (aac_get(b, 1) != 0) return 0;
++    if (aac_get(b, 1) != 1) return 0;
++    if (aac_get(b, 6) != 0) return 0;
++    if (aac_get(b, 4) != 0) return 0;
++    if (aac_get(b, 3) != 0) return 0;
++    if (aac_get(b, 1) != 0) return 0;
++    int aot = aac_get(b, 5);
++    if (aot == 31) { int e = aac_get(b, 6); if (e < 0) return 0; aot = 32 + e; }
++    if (aot <= 0 || aot > 32) return 0;
++    int fi = aac_get(b, 4);
++    if (fi < 0 || fi > 12) {
++        if (fi != 15) return 0;
++        for (int i = 0; i < 24; i++) if (aac_get(b, 1) < 0) return 0;
++        fi = 3;
++    }
++    int cfg = aac_get(b, 4);
++    if (cfg < 0) return 0;
++    int flen = aac_get(b, 1), dep = aac_get(b, 1), extf = aac_get(b, 1);
++    if (flen < 0 || dep < 0 || extf < 0) return 0;
++    if (dep) { if (aac_get(b, 14) < 0) return 0; }
++    *profile = aot; *freq_idx = fi; *ch = cfg;
++    return 1;
++}
++static int aac_short(AacBits *b) {
++    if (aac_get(b, 1) != 0) return 0;
++    if (aac_get(b, 1) != 1) return 0;
++    if (aac_get(b, 6) != 0) return 0;
++    if (aac_get(b, 4) != 0) return 0;
++    if (aac_get(b, 3) != 0) return 0;
++    if (aac_get(b, 1) != 1) return 0;
++    return 1;
++}
++static int aac_reframe(Movie *m, const uint8_t *d, size_t n, const uint8_t **raw, size_t *rawlen) {
++    const uint8_t *p = d; size_t left = n;
++    const uint8_t *lp; size_t llen;
++    if (aac_loas(d, n, &lp, &llen)) { p = lp; left = llen; }
++    if (!m->aac_smc_done) {
++        AacBits b = { p, p + left, 0 };
++        int prof = 0, fi = 0, ch = 0;
++        if (aac_smc_full(&b, &prof, &fi, &ch)) {
++            m->aac_profile = prof; m->aac_freq_idx = fi; m->aac_ch = ch ? ch : 2;
++            m->aac_rate = aac_freq_table[fi < 0 || fi > 12 ? 3 : fi];
++            m->aac_smc_done = 1;
++            if (b.bit) { b.p++; b.bit = 0; }
++            if (b.p >= b.end) return 0;
++            *raw = b.p; *rawlen = (size_t)(b.end - b.p);
++            rt_log("movie: AAC StreamMuxConfig: profile %d, %d Hz, %d channels", prof, m->aac_rate, m->aac_ch);
++            return 1;
++        }
++    } else {
++        AacBits b = { p, p + left, 0 };
++        if (aac_short(&b)) {
++            if (b.bit) { b.p++; b.bit = 0; }
++            if (b.p < b.end) { *raw = b.p; *rawlen = (size_t)(b.end - b.p); return 1; }
++        }
++    }
++    *raw = p; *rawlen = left;
++    return left > 0;
++}
++static void aac_adts(uint8_t h[7], int profile, int freq_idx, int ch, size_t len) {
++    size_t full = len + 7;
++    h[0] = 0xFF; h[1] = 0xF1;
++    h[2] = (uint8_t)(((profile & 3) << 6) | ((freq_idx & 15) << 2) | ((ch >> 2) & 1));
++    h[3] = (uint8_t)(((ch & 3) << 6) | ((full >> 11) & 3));
++    h[4] = (uint8_t)((full >> 3) & 0xFF);
++    h[5] = (uint8_t)(((full & 7) << 5) | 0x1F);
++    h[6] = 0xFC;
++}
++static IMFMediaType *aac_make_in(int rate, int ch, int aot, int fi) {
++    IMFMediaType *t = NULL;
++    if (FAILED(MFCreateMediaType(&t))) return NULL;
++    uint8_t asc[2];
++    asc[0] = (uint8_t)(((aot & 31) << 3) | ((fi & 15) >> 1));
++    asc[1] = (uint8_t)((((fi & 1) << 7) | ((ch & 15) << 3)) & 0xFF);
++    HRESULT hr = t->lpVtbl->SetGUID(t, &MF_MT_MAJOR_TYPE, &MFMediaType_Audio);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetGUID(t, &MF_MT_SUBTYPE, &MFAudioFormat_AAC);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AAC_PAYLOAD_TYPE, 0);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_NUM_CHANNELS, (UINT32)ch);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_SAMPLES_PER_SECOND, (UINT32)rate);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetBlob(t, &MF_MT_USER_DATA, asc, 2);
++    if (FAILED(hr)) { t->lpVtbl->Release(t); return NULL; }
++    return t;
++}
++static IMFMediaType *aac_make_out(int rate, int ch) {
++    IMFMediaType *t = NULL;
++    if (FAILED(MFCreateMediaType(&t))) return NULL;
++    HRESULT hr = t->lpVtbl->SetGUID(t, &MF_MT_MAJOR_TYPE, &MFMediaType_Audio);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetGUID(t, &MF_MT_SUBTYPE, &MFAudioFormat_PCM);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_NUM_CHANNELS, (UINT32)ch);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_SAMPLES_PER_SECOND, (UINT32)rate);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_BLOCK_ALIGNMENT, (UINT32)(ch * 2));
++    if (SUCCEEDED(hr)) hr = t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_AVG_BYTES_PER_SECOND, (UINT32)(rate * ch * 2));
++    if (FAILED(hr)) { t->lpVtbl->Release(t); return NULL; }
++    return t;
++}
++static int aac_open(Movie *m) {
++    mf_startup();
++    HRESULT hr = CoCreateInstance(&CLSID_CMSAACDecMFT, NULL, CLSCTX_INPROC_SERVER, &IID_IMFTransform, (void **)&m->aac);
++    if (FAILED(hr) || !m->aac) {
++        rt_log("movie: AAC MFT creation: %#lx", (unsigned long)hr);
++        return 0;
++    }
++    m->aac_live = 1;
++    return 1;
++}
++static void aac_probe_types(Movie *m) {
++    for (int i = 0; i < 4; i++) {
++        IMFMediaType *t = NULL;
++        HRESULT hr = m->aac->lpVtbl->GetInputAvailableType(m->aac, 0, i, &t);
++        if (FAILED(hr) || !t) { rt_log("movie: AAC avail_in[%d]: %#lx", i, (unsigned long)hr); continue; }
++        GUID sub = {0}; UINT32 pay = 99, ch = 0, rate = 0, bits = 0, ulen = 0;
++        t->lpVtbl->GetGUID(t, &MF_MT_SUBTYPE, &sub);
++        t->lpVtbl->GetUINT32(t, &MF_MT_AAC_PAYLOAD_TYPE, &pay);
++        t->lpVtbl->GetUINT32(t, &MF_MT_AUDIO_NUM_CHANNELS, &ch);
++        t->lpVtbl->GetUINT32(t, &MF_MT_AUDIO_SAMPLES_PER_SECOND, &rate);
++        t->lpVtbl->GetUINT32(t, &MF_MT_AUDIO_BITS_PER_SAMPLE, &bits);
++        uint8_t *ub = NULL; UINT32 usz = 0;
++        if (SUCCEEDED(t->lpVtbl->GetAllocatedBlob(t, &MF_MT_USER_DATA, &ub, &usz))) { ulen = usz; CoTaskMemFree(ub); }
++        rt_log("movie: AAC avail_in[%d]: sub=%08lx pay=%u ch=%u rate=%u bits=%u user=%u", i, (unsigned long)sub.Data1, pay, ch, rate, bits, ulen);
++        t->lpVtbl->Release(t);
++    }
++}
++static HRESULT aac_negotiate_in(Movie *m, int aot, int fi) {
++    uint8_t asc[2];
++    asc[0] = (uint8_t)(((aot & 31) << 3) | ((fi & 15) >> 1));
++    asc[1] = (uint8_t)((((fi & 1) << 7) | ((m->aac_ch & 15) << 3)) & 0xFF);
++    for (int v = 0; v < 4; v++) {
++        IMFMediaType *t = NULL;
++        HRESULT hr = E_FAIL;
++        if (v < 2) {
++            if (FAILED(m->aac->lpVtbl->GetInputAvailableType(m->aac, 0, 0, &t))) continue;
++            if (v == 0) {
++                t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_NUM_CHANNELS, (UINT32)m->aac_ch);
++                t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_SAMPLES_PER_SECOND, (UINT32)m->aac_rate);
++            }
++            if (v == 1) t->lpVtbl->SetBlob(t, &MF_MT_USER_DATA, asc, 2);
++        } else if (v == 2) {
++            t = aac_make_in(m->aac_rate, m->aac_ch, aot, fi);
++            if (t) t->lpVtbl->SetUINT32(t, &MF_MT_AUDIO_BITS_PER_SAMPLE, 32);
++        } else {
++            if (FAILED(m->aac->lpVtbl->GetInputAvailableType(m->aac, 0, 0, &t))) continue;
++        }
++        if (!t) continue;
++        hr = m->aac->lpVtbl->SetInputType(m->aac, 0, t, 0);
++        t->lpVtbl->Release(t);
++        rt_log("movie: AAC in-variant v%d: %#lx", v, (unsigned long)hr);
++        if (SUCCEEDED(hr)) return hr;
++    }
++    return E_FAIL;
++}
++static void aac_configure_mft(Movie *m) {
++    aac_probe_types(m);
++    int aot = m->aac_smc_done ? m->aac_profile : 2;
++    int fi = m->aac_smc_done ? m->aac_freq_idx : aac_freq_idx(m->aac_rate);
++    HRESULT hr_in = aac_negotiate_in(m, aot, fi);
++    IMFMediaType *out = SUCCEEDED(hr_in) ? aac_make_out(m->aac_rate, m->aac_ch) : NULL;
++    HRESULT hr_out = out ? m->aac->lpVtbl->SetOutputType(m->aac, 0, out, 0) : E_OUTOFMEMORY;
++    if (out) out->lpVtbl->Release(out);
++    if (SUCCEEDED(hr_in) && SUCCEEDED(hr_out)) {
++        m->aac->lpVtbl->ProcessMessage(m->aac, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
++        m->aac->lpVtbl->ProcessMessage(m->aac, MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
++        m->aac_ready = 1;
++        rt_log("movie: AAC decoding %d Hz x%d", m->aac_rate, m->aac_ch);
++    } else {
++        m->aac_broken = 1;
++        rt_log("movie: AAC setup: input %#lx output %#lx", (unsigned long)hr_in, (unsigned long)hr_out);
++    }
++}
++static void aac_close(Movie *m) {
++    if (m->aac) {
++        m->aac->lpVtbl->ProcessMessage(m->aac, MFT_MESSAGE_COMMAND_FLUSH, 0);
++        m->aac->lpVtbl->Release(m->aac);
++        m->aac = NULL;
++    }
++    m->aac_live = m->aac_ready = m->aac_broken = m->aac_fed_first = m->aac_smc_done = 0;
++}
++static HRESULT aac_in(Movie *m, const uint8_t *d, size_t n, int64_t time_us) {
++    IMFMediaBuffer *buf = NULL;
++    IMFSample *s = NULL;
++    HRESULT hr = MFCreateMemoryBuffer((DWORD)n, &buf);
++    if (SUCCEEDED(hr)) {
++        BYTE *p = NULL;
++        hr = buf->lpVtbl->Lock(buf, &p, NULL, NULL);
++        if (SUCCEEDED(hr)) {
++            memcpy(p, d, n);
++            hr = buf->lpVtbl->Unlock(buf);
++        }
++    }
++    if (SUCCEEDED(hr)) hr = buf->lpVtbl->SetCurrentLength(buf, (DWORD)n);
++    if (SUCCEEDED(hr)) hr = MFCreateSample(&s);
++    if (SUCCEEDED(hr)) hr = s->lpVtbl->AddBuffer(s, buf);
++    if (SUCCEEDED(hr) && time_us > 0) hr = s->lpVtbl->SetSampleTime(s, time_us * 10);
++    if (SUCCEEDED(hr)) hr = m->aac->lpVtbl->ProcessInput(m->aac, 0, s, 0);
++    if (SUCCEEDED(hr)) m->aac_fed_first = 1;
++    if (s) s->lpVtbl->Release(s);
++    if (buf) buf->lpVtbl->Release(buf);
++    return hr;
++}
++static HRESULT aac_out(Movie *m, uint8_t *dst, size_t cap, int *got) {
++    *got = 0;
++    MFT_OUTPUT_STREAM_INFO oi;
++    memset(&oi, 0, sizeof oi);
++    if (FAILED(m->aac->lpVtbl->GetOutputStreamInfo(m->aac, 0, &oi))) return E_FAIL;
++    for (int k = 0; k < 4; k++) {
++        MFT_OUTPUT_DATA_BUFFER ob;
++        DWORD st = 0;
++        IMFSample *own = NULL;
++        IMFMediaBuffer *ownb = NULL;
++        memset(&ob, 0, sizeof ob);
++        if (!(oi.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)) {
++            DWORD need = oi.cbSize ? oi.cbSize : 32768;
++            if (SUCCEEDED(MFCreateSample(&own)) && SUCCEEDED(MFCreateMemoryBuffer(need, &ownb)) &&
++                SUCCEEDED(own->lpVtbl->AddBuffer(own, ownb)))
++                ob.pSample = own;
++        }
++        HRESULT hr = m->aac->lpVtbl->ProcessOutput(m->aac, 0, 1, &ob, &st);
++        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
++            if (own) own->lpVtbl->Release(own);
++            if (ownb) ownb->lpVtbl->Release(ownb);
++            return S_OK;
++        }
++        if (FAILED(hr)) {
++            if (own) own->lpVtbl->Release(own);
++            if (ownb) ownb->lpVtbl->Release(ownb);
++            return hr;
++        }
++        IMFMediaBuffer *out = NULL;
++        if (ob.pSample) {
++            if (own) { out = ownb; ownb = NULL; }
++            else ob.pSample->lpVtbl->ConvertToContiguousBuffer(ob.pSample, &out);
++        }
++        if (out) {
++            BYTE *p = NULL; DWORD cur = 0;
++            if (SUCCEEDED(out->lpVtbl->Lock(out, &p, NULL, &cur))) {
++                size_t take = cur;
++                if (take > cap) take = cap;
++                memcpy(dst, p, take);
++                *got = (int)take;
++                out->lpVtbl->Unlock(out);
++            }
++            out->lpVtbl->Release(out);
++        }
++        if (ob.pSample) ob.pSample->lpVtbl->Release(ob.pSample);
++        if (ownb) ownb->lpVtbl->Release(ownb);
++        if (*got) return S_OK;
++    }
++    return S_OK;
++}
++
+ // ---- Media Foundation H.264 (video/avc, Annex B) ----
+ // This title's movies are H.264 in Annex B byte-stream framing (00 00 00 01 start codes; each packet holds SEI, the
+ // SPS/PPS headers and slices), which the inbox software H.264 decoder MFT takes directly. The AAC track stays
+@@ -636,7 +925,7 @@
+     Movie *m = arg;
+     plat_mutex_lock(&m->mu);
+     for (;;) {
+-        while (!m->quit && !(m->started && (m->vpx_live || m->mf_live) && m->npending && can_take(m, &m->pending[0])))
++        while (!m->quit && !(m->started && (m->vpx_live || m->mf_live || m->mf_is_aac) && m->npending && can_take(m, &m->pending[0])))
+             plat_cond_wait(&m->work, &m->mu);
+         if (m->quit) break;
+         Pending p = m->pending[0];
+@@ -676,6 +965,21 @@
+                     failed = FAILED(mf_hr);
+                 }
+                 }
++            } else if (m->mf_is_aac) {
++                const uint8_t *raw = NULL; size_t rawlen = 0;
++                if (!m->aac_thread_init) { mf_startup(); m->aac_thread_init = 1; }
++                if (!aac_reframe(m, m->in[p.index] + p.offset, (size_t)p.size, &raw, &rawlen)) {
++                    rt_log("movie: AAC packet skipped at %lld us", (long long)p.time);
++                } else {
++                    if (!m->aac_live && !aac_open(m)) failed = 1;
++                    if (!failed && !m->aac_ready && !m->aac_broken) aac_configure_mft(m);
++                    if (!failed && !m->aac_broken) {
++                        mf_stage = "aac-in";
++                        mf_hr = aac_in(m, raw, rawlen, p.time);
++                        if (SUCCEEDED(mf_hr)) { mf_stage = "aac-out"; mf_hr = aac_out(m, dst, AAC_PCM_CAP, &got); }
++                        failed = FAILED(mf_hr);
++                    } else if (!failed) failed = 1;
++                }
+             } else {
+             e = vpx_codec_decode(&m->vpx, m->in[p.index] + p.offset, (unsigned)p.size, NULL, 0);
+             if (e == VPX_CODEC_OK) {
+@@ -711,6 +1015,9 @@
+                         if (m->mf_is_avc)
+                             rt_log("movie: H.264 decode error (%s) on a %d-byte frame at %lld us: hr=%#lx", mf_stage,
+                                    p.size, (long long)p.time, (unsigned long)mf_hr);
++                        else if (m->mf_is_aac)
++                            rt_log("movie: AAC decode error (%s) on a %d-byte frame at %lld us: hr=%#lx", mf_stage,
++                                   p.size, (long long)p.time, (unsigned long)mf_hr);
+                         else {
+                         const char *d = vpx_codec_error_detail(&m->vpx);
+                         rt_log("movie: VP9 decode error on a %d-byte frame at %lld us: %s", p.size, (long long)p.time,
+@@ -719,12 +1026,12 @@
+                     }
+                 }
+             } else {
+-                if (got > 1) rt_log("movie: %d frames from one input at %lld us, the first kept", got, (long long)p.time);
++                if (!m->mf_is_aac && got > 1) rt_log("movie: %d frames from one input at %lld us, the first kept", got, (long long)p.time);
+                 if (!m->format_sent) {
+                     m->format_sent = 1;
+                     m->owed |= 1u << MOVIE_EV_FORMAT;
+                 }
+-                push_decoded(m, slot, 0, p.time, frame_bytes(m));
++                push_decoded(m, slot, 0, p.time, m->mf_is_aac ? got : frame_bytes(m));
+                 m->st.frames++;
+                 if (m->st.frames % 600 == 0)
+                     rt_log("movie: %llu frames, decode %.2f ms per frame (max %.2f)", (unsigned long long)m->st.frames,
+@@ -773,6 +1080,7 @@
+         m->vpx_live = 0;
+     }
+     mf_close(m);
++    aac_close(m);
+     for (int i = 0; i < IN_BUFS; i++) {
+         if (m->in[i]) mem_kernel_free(m->in[i], IN_CAP);
+         m->in[i] = NULL;
+@@ -870,7 +1178,7 @@
+     Movie *m = find(obj);
+     if (!m) return 1;
+     plat_mutex_lock_shared(&m->mu);
+-    int q = !m->busy && !(m->started && (m->vpx_live || m->mf_live) && m->npending && can_take(m, &m->pending[0]));
++    int q = !m->busy && !(m->started && (m->vpx_live || m->mf_live || m->mf_is_aac) && m->npending && can_take(m, &m->pending[0]));
+     plat_mutex_unlock_shared(&m->mu);
+     return q;
+ }
+@@ -883,7 +1191,7 @@
+     uint64_t obj = arg_x(c, 0);
+     int type = (int)arg_x(c, 1), format = (int)arg_x(c, 2);
+     guest_init();
+-    int host = type == MOVIE_TYPE_VP9 || type == MOVIE_TYPE_AVC;
++    int host = type == MOVIE_TYPE_VP9 || type == MOVIE_TYPE_AVC || type == MOVIE_TYPE_AAC;
+     int stub = !host && stub_on();
+     if ((!host && !stub) || host_off()) {
+         rt_log("movie: decoder type %d format %d left to the library%s", type, format,
+@@ -900,6 +1208,7 @@
+     plat_cond_init(&m->idle);
+     m->stub = stub;
+     m->mf_is_avc = !stub && type == MOVIE_TYPE_AVC;
++    m->mf_is_aac = !stub && type == MOVIE_TYPE_AAC;
+     if (!stub && !(m->thread = plat_thread_new(worker, m, "movie"))) rt_fatal("movie: cannot start the worker thread");
+     plat_mutex_lock(&g_lock);
+     int i = 0;
+@@ -911,8 +1220,8 @@
+     plat_mutex_unlock(&g_lock);
+     ST64(obj, G.vptr);
+     ST64(obj + 8, U(m));
+-    rt_log("movie: %s decoder %#llx on the host (%s), type %d output format %d", stub ? "stub" : type == MOVIE_TYPE_AVC ? "AVC" : "VP9",
+-           (unsigned long long)obj, stub ? "skipped, no decoding" : type == MOVIE_TYPE_AVC ? "Media Foundation" : vpx_codec_version_str(), type, format);
++    rt_log("movie: %s decoder %#llx on the host (%s), type %d output format %d", stub ? "stub" : type == MOVIE_TYPE_AVC ? "AVC" : type == MOVIE_TYPE_AAC ? "AAC" : "VP9",
++           (unsigned long long)obj, stub ? "skipped, no decoding" : m->mf_is_aac ? "Media Foundation (ADTS)" : type == MOVIE_TYPE_AVC ? "Media Foundation" : vpx_codec_version_str(), type, format);
+ }
+ 
+ static void destroy(Cpu *c, uint64_t obj) {
+@@ -989,6 +1298,33 @@
+         ret_x(c, ST_OK);
+         return;
+     }
++    if (m->mf_is_aac) {
++        uint64_t mime_p = 0;
++        int rate = 0, ch = 0;
++        rt_call(c, G.md_find_string, 3, md, U("mime"), U(&mime_p));
++        md_find_int32(c, md, "sample-rate", &rate);
++        md_find_int32(c, md, "channel-count", &ch);
++        const char *mime = (const char *)(uintptr_t)mime_p;
++        plat_mutex_lock(&m->mu);
++        int away = quiesce(m);
++        release_codec(m);
++        m->aac_rate = rate > 0 ? rate : 48000;
++        m->aac_ch = ch > 0 ? ch : 2;
++        m->aac_freq_idx = aac_freq_idx(m->aac_rate);
++        m->aac_profile = 2;
++        m->aac_smc_done = 0;
++        for (int i = 0; i < IN_BUFS; i++) m->in[i] = mem_kernel_alloc(IN_CAP, 0x1000);
++        for (int i = 0; i < OUT_BUFS; i++)
++            if (!(m->out[i] = malloc(AAC_PCM_CAP))) rt_fatal("movie: output buffers");
++        reset_queues(m);
++        m->format_sent = 0;
++        m->configured = 1;
++        m->last_error = 0;
++        unlock_back(m, away);
++        rt_log("movie: configured AAC audio %d Hz x%d (mime %s)", m->aac_rate, m->aac_ch, mime ? mime : "(none)");
++        ret_x(c, ST_OK);
++        return;
++    }
+     // Format 4 is this title NV12: the same packed layout.
+     if (m->format != MOVIE_FORMAT_NV12 && m->format != 4) {
+         rt_log("movie: output format %d not implemented on the host (NV12 = %d or 4)", m->format, MOVIE_FORMAT_NV12);
+@@ -1057,6 +1393,13 @@
+     md_set_int32(c, md, "nv12-uv-offset", w * h);
+ }
+ 
++static void set_format_aac(Cpu *c, int rate, int ch, uint64_t md) {
++    rt_call(c, G.md_set_string, 3, md, U("mime"), U("audio/raw"));
++    md_set_int32(c, md, "sample-rate", rate);
++    md_set_int32(c, md, "channel-count", ch);
++    md_set_int32(c, md, "pcm-encoding", 2);
++}
++
+ // Status GetOutputFormat(MediaData *format)
+ static void ov_get_output_format(Cpu *c) {
+     uint64_t md = arg_x(c, 1);
+@@ -1064,10 +1407,10 @@
+     if (!m) { pass(c, MOVIE_GET_OUTPUT_FORMAT); return; }
+     if (!md) { ret_x(c, ST_NULL); return; }
+     plat_mutex_lock_shared(&m->mu);
+-    int ok = m->configured, w = m->w, h = m->h;
++    int ok = m->configured, w = m->w, h = m->h, is_aac = m->mf_is_aac, rate = m->aac_rate, ch = m->aac_ch;
+     plat_mutex_unlock_shared(&m->mu);
+     if (!ok) { ret_x(c, ST_ERROR); return; }
+-    set_format(c, w, h, md);
++    if (is_aac) set_format_aac(c, rate, ch, md); else set_format(c, w, h, md);
+     ret_x(c, ST_OK);
+ }
+ 
+@@ -1210,6 +1553,17 @@
+     }
+     Signals s = {0};
+     plat_mutex_lock(&m->mu);
++    {   // XC2_MOVIE_DUMP: AAC framing recon (log every input incl. size-0)
++        static int dump_init2 = 0, dump_on2 = 0;
++        if (!dump_init2) { dump_on2 = cfg_get("XC2_MOVIE_DUMP") != NULL; dump_init2 = 1; }
++        if (dump_on2 && m->mf_is_aac && m->aac_fed_first < 6 && index >= 0 && index < IN_BUFS && m->in[index]) {
++            const uint8_t *b = m->in[index] + offset;
++            if (size >= 8) rt_log("movie: AAC in#%d size=%d time=%lld flags=%u: %02x %02x %02x %02x %02x %02x %02x %02x",
++                   m->aac_fed_first, size, (long long)time, flags, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
++            else rt_log("movie: AAC in#%d size=%d time=%lld flags=%u (short)", m->aac_fed_first, size, (long long)time, flags);
++            m->aac_fed_first++;
++        }
++    }
+     // only a buffer the client holds (handed out, not yet sent): one that is free or queued would be returned twice
+     // and overflow in_free (after a Flush refilled it, say)
+     int held = 1;
