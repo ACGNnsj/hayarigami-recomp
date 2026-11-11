@@ -379,3 +379,23 @@ export XC2_INPUT_FORCE=1          # 窗口拿不到前台时也要能按键
   ③ NGX 缺依赖（nvngx_dlssnr 只链 VERSION/ADVAPI32/USER32/KERNEL32）。
   剩下只能是 NVIDIA 二进制内部检查（模型 sm 架构门？NGX 签名绑定？），黑盒不可解。
 - ext_probe.c 留 D:/consoles/tools（以后查扩展直接用）；STATUS 记完即 commit。
+## 2026-11-12 FG device-wrap experiment: SL-wrapped vkCreateDevice crashes at boot (abandoned)
+- Theory: instance/device built natively so SL lacked device context; routed vkCreateInstance/
+vkCreateDevice/vkGetDeviceQueue through sl.interposer.dll (vk_dlss_gproc + note_device/instance,
+GDPA fetched off the SL instance) to give DLSS-G queue context.
+- SL wrapper engaged ("Adding extra 1 graphics + 2 compute + 1 optical-flow queue"), then game
+crashed every run: exception 0xc0000005 address 0 in plugin init (vulkan.cpp:1176 debug_utils
+warn is the last SL line, ~3.6s, before returning to the engine). Both Swapper and SDK-2.14.16
+DLSS_G/NGX sets crash identically -> not a DLL mismatch; suspect old driver 32.0.16.2114 or
+wrapper/pNext-chain interaction. Instance-only routing boots clean (tick alive, FG applied).
+- Misdiagnosis corrected: the "rt_log goes silent after device creation" was not fd capture but
+the boot crash itself (only 3 engine lines precede it); file-channel forensics (fg_state.txt)
+proved tick never ran because the process was already dead.
+- Reverted everything (creation-path router, synth mid-depth/drift, file dumps, NODLSSG gate);
+tree = 90b52f4 + dynamicTargetFrameRate=120 pin (240Hz panel: 2x-of-60 target, harmless).
+Swapper DLL set restored in build/v0 (SDK pair moved back to dll_bak_sdk21416 side).
+Validation: 60s+ clean runs, "DLSS-G single FG applied", caps minWH100/maxGen1/vsync0, no crash,
+no state anomalies; screenshot unobtainable (02:30 focus fight, FOREGROUND_MISMATCH) - log
+bar met, rendering pipeline unchanged from visually-proven state.
+- Next: update NVIDIA driver past R575, then retry device-wrap; FG interpolation still gated on
+real engine motion vectors (synth-input matrix exhausted: drift/mid-depth/static/120fps all 1/60).

@@ -567,6 +567,9 @@ void vk_dlss_fg_tick(void) {
         sl::DLSSGOptions o{};
         o.mode = sl::DLSSGMode::eOn;
         o.numFramesToGenerate = 1; // single frame generation: each real present displays twice
+        // FG probe 2026-11-11: the 240Hz panel makes auto-detect target 240fps, unreachable at 2x
+        // from 60fps content - the driver may idle instead. Pin the target to 120 (2x of 60).
+        o.dynamicTargetFrameRate = 120.0f;
         if (f_dlssg_options(vp, o) != sl::Result::eOk) {
             rt_log("vk: DLSS-G slDLSSGSetOptions failed");
             return;
