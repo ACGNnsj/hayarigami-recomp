@@ -369,3 +369,13 @@ export XC2_INPUT_FORCE=1          # 窗口拿不到前台时也要能按键
   本机驱动 32.0.16.2114（R572，2025-01），大概率太老（NR 要 R575+ 的 neural shading 支持）。
 - 结论：P3 开关链路端到端验证完毕（探测→加载→插件自检→优雅降级，渲染不受影响）。
   全 wiring 待两样东西：① sl_dlss_nr.h（新版 Streamline SDK 才有 options 结构体）；② 支持 NR 的新驱动。DLL 留 build/v0 本地（git-ignored，不进仓）。
+## 2026-11-11 Phase 3 NR 配套 DLL 全套换装（用户指令：用配套的）
+- 用户纠正：驱动是上个月的（32.0.16.2114），我之前按老编号规则解成 R572 是错的，驱动条排除。
+- 按用户要求把 Swapper payload 全套换上 build/v0（interposer/common/dlss/dlss_g + 全部 nvngx 核心；
+  reflex/latency/nis/pcl payload 里没有，留 SDK 版；旧 SDK 版 DLL 备份在 build/v0/dll_bak_sdk21416/）。
+  SR/FG 零回归：DLSS ready + DLSS-G ready + present 路由继续。
+- NR  verdict 不变（not supported 32）。已排除：①版本对不上（全套配套仍一样）；②硬件缺扩展（自写 ext_probe.c：
+  4080 暴露 VK_NV_cooperative_vector v4 + cooperative_matrix/matrix2 + low_latency2 + optical_flow）；
+  ③ NGX 缺依赖（nvngx_dlssnr 只链 VERSION/ADVAPI32/USER32/KERNEL32）。
+  剩下只能是 NVIDIA 二进制内部检查（模型 sm 架构门？NGX 签名绑定？），黑盒不可解。
+- ext_probe.c 留 D:/consoles/tools（以后查扩展直接用）；STATUS 记完即 commit。
