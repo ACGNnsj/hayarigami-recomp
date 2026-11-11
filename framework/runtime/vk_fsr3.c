@@ -48,6 +48,7 @@
 #include "fsr3_prep_spv.h"
 #include "host.h"
 #include "platform/platform.h"
+#include "vk_dlss.h"
 
 #ifndef _WIN32
 #define __declspec(x)   // the headers export their prototypes; elsewhere the library is simply not found
@@ -178,18 +179,22 @@ static int init(VkCtx *c) {
         lib = open_library(FFX_LEGACY, path, sizeof path);
         if (lib) F.api = API_LEGACY;
     }
-    if (!lib) {
+    if (!lib && !vk_dlss_available()) {
         rt_log("vk: FSR off: neither " FFX_LOADER " nor " FFX_LEGACY " is next to the executable");
         return 0;
     }
-    F.create = (PfnFfxCreateContext)plat_lib_sym(lib, "ffxCreateContext");
-    F.destroy = (PfnFfxDestroyContext)plat_lib_sym(lib, "ffxDestroyContext");
-    F.dispatch = (PfnFfxDispatch)plat_lib_sym(lib, "ffxDispatch");
-    F.query = (PfnFfxQuery)plat_lib_sym(lib, "ffxQuery");
-    F.configure = (PfnFfxConfigure)plat_lib_sym(lib, "ffxConfigure");
-    if (!F.create || !F.destroy || !F.dispatch) {
-        rt_log("vk: FSR off: %s has no ffxCreateContext, ffxDestroyContext or ffxDispatch", path);
-        return 0;
+    if (lib) {
+        F.create = (PfnFfxCreateContext)plat_lib_sym(lib, "ffxCreateContext");
+        F.destroy = (PfnFfxDestroyContext)plat_lib_sym(lib, "ffxDestroyContext");
+        F.dispatch = (PfnFfxDispatch)plat_lib_sym(lib, "ffxDispatch");
+        F.query = (PfnFfxQuery)plat_lib_sym(lib, "ffxQuery");
+        F.configure = (PfnFfxConfigure)plat_lib_sym(lib, "ffxConfigure");
+        if (!F.create || !F.destroy || !F.dispatch) {
+            rt_log("vk: FSR off: %s has no ffxCreateContext, ffxDestroyContext or ffxDispatch", path);
+            return 0;
+        }
+    } else {
+        rt_log("vk: no FSR library; the resolve capture still runs for DLSS");
     }
     F.dev.vkDevice = c->device;
     F.dev.vkPhysicalDevice = c->phys;
@@ -238,6 +243,7 @@ static int init(VkCtx *c) {
         rt_log("vk: FSR off: its pipeline could not be created");
         return 0;
     }
+    if (!lib) return F.ok = 1;   // images only: DLSS upscales, no FSR context
     rt_log("vk: FSR from %s (%s)", path, F.api == API_LOADER ? "AMD FSR SDK 2.x" : "FidelityFX SDK 1.1.4");
     return F.ok = 1;
 }
@@ -355,6 +361,13 @@ static int ensure_output(VkCtx *c, uint32_t w, uint32_t h) {
     F.pinned[0] = 0;
     for (int p = 0; p < 2; p++)
         if (!make_image(c, IMG_OUT, p, w, h)) return 0;
+    if (!F.create) {   // no FSR library: DLSS upscales into these images, no context needed
+        F.ow = w;
+        F.oh = h;
+        snprintf(F.pinned, sizeof F.pinned, "%s", want);
+        F.logged = 0;
+        return 1;
+    }
     struct ffxCreateBackendVKDesc backend = {.header = {.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK},
                                              .deviceContext = F.dev};
     struct ffxCreateBackendVKDesc_DEPRECATED backend_old = {
@@ -468,7 +481,8 @@ void vk_fsr3_note(VkExec *ex) {
         return;
     int unfinished = F.stage != STAGE_NONE;
     F.stage = STAGE_NONE;
-    if (!cfg_bool("XC2_FSR3")) return;   // frame generation is off without it too (vk_fg_wanted)
+    // Frame generation is off without FSR3 too (vk_fg_wanted); DLSS upscaling needs the same capture.
+    if (!cfg_bool("XC2_FSR3") && !vk_dlss_available()) return;
     VkCtx *c = vk_ctx();
     if (!F.tried) init(c);
     if (!F.ok) return;
@@ -592,7 +606,7 @@ static ffxReturnCode_t dispatch_upscale(VkCommandBuffer cb, int reset, float ms)
 static void record_upscale(VkExec *ex) {
     const VkExecTarget *out = &ex->color[0];
     VkCommandBuffer cb = ex->cb;
-    if (!F.ctx || !out->image || ex->fbl_mask & 1) return;
+    if (!out->image || ex->fbl_mask & 1) return;
     uint64_t frame = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), now = kern_now_ns();
     // A gap means the setting was off or the game drew no scene for a while: the history would not match the picture
     int reset = !F.last_frame || frame > F.last_frame + 2;
@@ -609,11 +623,37 @@ static void record_upscale(VkExec *ex) {
     copy_picture(cb, F.tone, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, NULL);
     image_layout(cb, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     image_layout(cb, F.img[IMG_OUT][F.par], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    ffxReturnCode_t r = dispatch_upscale(cb, reset, ms);
-    if (r != FFX_API_RETURN_OK) {
-        rt_log("vk: FSR off: ffxDispatch returned %u", r);
-        F.ok = 0;
-        return;
+    if (!strcmp(cfg_value("XC2_UPSCALER"), "dlss") && vk_dlss_available()) {
+        float mvscale[2] = {1.0f / (float)F.rw, 1.0f / (float)F.rh};   // the prep shader outputs pixels
+        if (!vk_dlss_dispatch(cb, F.img[IMG_COLOUR][0], F.view[IMG_COLOUR][0], PICTURE_FORMAT,
+                              F.img[IMG_DEPTH][F.par], F.view[IMG_DEPTH][F.par], VK_FORMAT_R32_SFLOAT,
+                              F.img[IMG_MOTION][F.par], F.view[IMG_MOTION][F.par],
+                              VK_FORMAT_R16G16B16A16_SFLOAT, F.rw, F.rh, F.ow, F.oh, F.jitter, mvscale, F.near_z,
+                              F.far_z, F.fov, reset, F.img[IMG_OUT][F.par], F.view[IMG_OUT][F.par],
+                              VK_FORMAT_R16G16B16A16_SFLOAT)) {
+            // Degraded: stretch the tone copy over the output with a linear blit, no temporal history.
+            warn_once(8, "DLSS failed, a bilinear stretch stands in for this session");
+            image_layout(cb, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            image_layout(cb, F.img[IMG_OUT][F.par], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkImageBlit fb = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                              .srcOffsets = {{0, 0, 0}, {(int)F.rw, (int)F.rh, 1}},
+                              .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                              .dstOffsets = {{0, 0, 0}, {(int)F.ow, (int)F.oh, 1}}};
+            vkCmdBlitImage(cb, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, F.img[IMG_OUT][F.par],
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &fb, VK_FILTER_LINEAR);
+            image_layout(cb, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            image_layout(cb, F.img[IMG_OUT][F.par], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        }
+    } else {
+        if (!F.ctx) return warn_once(16, "neither the FSR context nor DLSS is available");
+        ffxReturnCode_t r = dispatch_upscale(cb, reset, ms);
+        if (r != FFX_API_RETURN_OK) {
+            rt_log("vk: FSR off: ffxDispatch returned %u", r);
+            F.ok = 0;
+            return;
+        }
     }
     memory_barrier(cb);
     VkImageBlit region = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
@@ -681,6 +721,42 @@ static float half_to_float(uint16_t h) {
         for (int i = 0; i < 15 - (int)e; i++) v *= 0.5f;
     }
     return s ? -v : v;
+}
+
+// Synthetic DLSS inputs for the present path. The replay note only matches XC2 resolves, so for other games DLSS
+// upscales the final picture as a static camera: motion is zero, depth is a flat far plane, jitter is zero and the
+// previous-clip matrix is identity, so frames accumulate like multi-frame super-sampling on stills (and smear while
+// things move). Clears once per size; the caller owns the colour and output layouts.
+static uint32_t synth_w, synth_h, synth_ow, synth_oh;
+int vk_fsr3_synth(VkCtx *c, VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, VkImage *depth,
+                  VkImageView *depth_view, VkImage *mvec, VkImageView *mvec_view, VkImage *out, VkImageView *out_view) {
+    if (!ensure_input(c, w, h) || !ensure_output(c, ow, oh)) return 0;
+    if (synth_w != w || synth_h != h || synth_ow != ow || synth_oh != oh) {
+        VkImageSubresourceRange all = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkClearColorValue far = {.float32 = {1.0f, 0, 0, 0}};
+        VkClearColorValue zero = {.float32 = {0, 0, 0, 0}};
+        image_layout(cb, F.img[IMG_DEPTH][0], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdClearColorImage(cb, F.img[IMG_DEPTH][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &far, 1, &all);
+        image_layout(cb, F.img[IMG_DEPTH][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        image_layout(cb, F.img[IMG_MOTION][0], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdClearColorImage(cb, F.img[IMG_MOTION][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &all);
+        image_layout(cb, F.img[IMG_MOTION][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        image_layout(cb, F.img[IMG_OUT][0], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        synth_w = w;
+        synth_h = h;
+        synth_ow = ow;
+        synth_oh = oh;
+        rt_log("vk: DLSS present path: synthetic static inputs %ux%u -> %ux%u", w, h, ow, oh);
+    }
+    *depth = F.img[IMG_DEPTH][0];
+    *depth_view = F.view[IMG_DEPTH][0];
+    *mvec = F.img[IMG_MOTION][0];
+    *mvec_view = F.view[IMG_MOTION][0];
+    *out = F.img[IMG_OUT][0];
+    *out_view = F.view[IMG_OUT][0];
+    return 1;
 }
 
 // --probe-fsr (host.h): creates a 1280x720 -> 1920x1080 context from the library next to the executable, dispatches two

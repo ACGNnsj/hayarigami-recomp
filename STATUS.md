@@ -333,3 +333,16 @@ export XC2_INPUT_FORCE=1          # 窗口拿不到前台时也要能按键
 - 后端早通（fs_host.c MountSave/Commit + probe_restart/tx_commit 自测），这次是真 gameplay 存档点往返的一半（存）；
   读档一半待补（可选：重进标题选 继续 看是否回到存档场景）。
 - saverun keep-alive job 用户已手动结束，haya 进程同步退出，无残留。
+
+## 2026-11-11 Phase 1 DLSS-SR 跑通（RTX 4080 Laptop，DLAA 验证）
+- 用户拍板 DLSS（m08719，先 SR 后 FG 再 5-NR 开关）。SDK 2.14.16 落 build/sl-dl/sdk；DLL 随包：build/v0/{sl.interposer,sl.dlss,sl.common,nvngx_dlss}.dll。
+- 桥接：framework/runtime/vk_dlss.{h,cpp}（SL 包一层皮：early/init/requirements/instance+device ext/bind/available/dispatch/release），
+  钩子只动 vk_fsr3.c（note 门为 dlss 放行 + 无 FFX images-only 初始化 + record_upscale DLSS 分支/LINEAR 兜底）+ vk_device.c（early/+ext/bind）+ gfx_present.c（release）。
+- 设置：XC2_UPSCALER=dlss + XC2_DLSS_MODE（off|dlaa|quality|balanced|performance|ultraperformance，默认 quality），ini-only（菜单 UI Phase 1 不做）。
+- 证据链（dlss_dlaa/dlss_shot 两轮 run，RTX 4080）：slIsFeatureSupported=0，SL 日志 eVerbose 全程 tags+evaluate 干净，present fallback 0 次；
+  mode 6（eDLAA）1920x1080→1920x1080，游戏稳定无崩。截图因用户在用机只截到 IDE（dlss_proof.png 作废），以日志为准。
+- 沿途三坑（已全进代码/注释）：(1) slDLSSSetOptions/GetOptimalSettings 不在 interposer，在 sl.dlss.dll——运行时经 slGetFeatureFunction 取（sl_dlss.h 注释即用法）；
+  (2) slDestroyViewport 不存在（SL 2.x 无此 API），release 只调 slShutdown；(3) 纯裸名 plat_lib_open 只搜 System32，必须拼 exe 全路径；
+  (4) MSYS 工具链 spawn 的进程缺 SystemDrive→SHGetKnownFolderPath(ProgramData) 失败→NGX 无 manifest——验证 run 必须 export SystemDrive/SystemRoot/windir/PROGRAMDATA（用户双击无此问题）；
+  (5) Result 19=eErrorInvalidIntegration（别数错），因 pref.flags 缺 eUseFrameBasedResourceTagging——slSetTagForFrame 强制要求。
+- DLSS-SR Phase 1 代码完工；待 Phase 2（DLSS-G 单 FG）+ Phase 3（5-NR 社区 DLL 开关）。重进游戏选 继续 读档验证仍可选待补（与 DLSS 无关）。

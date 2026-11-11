@@ -348,6 +348,9 @@ def ninja_file(gen, out, mods, pool_depth, skip=(), prebuilt=False, runtime_lib=
     vma = f'{cmd_path(DEPS / "include")} -I {cmd_path(DEPS / "include" / "vma")}' if DEPS else cmd_path(vma_include())
     imgui = cmd_path(RUNTIME / 'third_party' / 'imgui')
     rt_inc = f'{inc} -I {cmd_path(out)} -I {vma} -I {imgui}'   # romfs_config.h, vk_mem_alloc.h (+ deps headers), imgui.h
+    sl_inc = ROOT.parent / 'build' / 'sl-dl' / 'sdk' / 'include'   # ROOT is framework/, the SDK sits in the repo build/
+    if sl_inc.is_dir():   # Streamline SDK: vk_dlss.cpp compiles against it, stubs out without it
+        rt_inc += f' -I {cmd_path(sl_inc)}'
     libs = [f'-L {cmd_path(DEPS / "lib")}'] + (LLVM_LINK_LIBS if WIN else LINK_LIBS) if DEPS else LINK_LIBS
     lines = [
         '# Written by tools/build_game.py; do not edit.',
@@ -574,6 +577,20 @@ def copy_fsr3(exe_dir):
             src = d / n
             if src.is_file():
                 shutil.copy2(src, exe_dir / n)
+
+
+def copy_dlss(exe_dir):
+    """Put NVIDIA's Streamline libraries next to haya.exe, where runtime/vk_dlss.cpp loads them: the interposer
+    (slInit and friends), the DLSS super-resolution plugin with its shared core, and the NGX model runner. Without
+    them XC2_UPSCALER=dlss falls back to the FSR path. Phase 2 adds sl.dlss_g.dll + nvngx_dlssg.dll here."""
+    d = ROOT.parent / 'build' / 'sl-dl' / 'sdk' / 'bin' / 'x64'   # ROOT is framework/, the SDK sits in the repo build/
+    names = ('sl.interposer.dll', 'sl.dlss.dll', 'sl.common.dll', 'nvngx_dlss.dll')
+    if not WIN:
+        return
+    for n in names:
+        src = d / n
+        if src.is_file():
+            shutil.copy2(src, exe_dir / n)
 
 
 def unlink_shared(out, mods):
@@ -1164,6 +1181,7 @@ def main():
         shutil.copy2(dll, exe.parent / dll.name)
     copy_translator(exe.parent)
     copy_fsr3(exe.parent)
+    copy_dlss(exe.parent)
     sections, image = pe_sections(exe) if WIN else elf_sections(exe)
     print(f'{below_root(exe)}: file {mib(exe.stat().st_size)}, '
           f'image {mib(image)}; ' + ', '.join(f'{k} {mib(v)}' for k, v in sections.items() if k.startswith('.') and v))

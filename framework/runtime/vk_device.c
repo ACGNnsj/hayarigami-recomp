@@ -10,6 +10,7 @@
 #include "host.h"
 #include "vk.h"
 #include "platform/platform.h"
+#include "vk_dlss.h"
 
 static VkCtx g_vk;
 static int g_ready;
@@ -56,8 +57,10 @@ static void mesa_cache_beside_exe(void) {
 
 static int create_instance(void) {
     mesa_cache_beside_exe();
-    const char *ext[8];
+    vk_dlss_early();   // slInit before the instance, so the requirements below are known
+    const char *ext[16];
     uint32_t n_ext = (uint32_t)gfx_window_vk_extensions(ext, 7);
+    n_ext += (uint32_t)vk_dlss_instance_ext(ext + n_ext, 16 - (int)n_ext);
     const char *layers[] = {"VK_LAYER_KHRONOS_validation"};
     int validate = cfg_bool("XC2_VK_VALIDATION");
     if (validate && !layer_present(layers[0])) {
@@ -298,6 +301,7 @@ static int create_device(void) {
     if (has_ext(ep, ne, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME)) { g_vk.has_memory_budget = 1; ext[n_ext++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME; }
     // GPU breadcrumbs for a lost device (vk_crumbs.c): AMD's drivers and RADV report it.
     if (has_ext(ep, ne, VK_AMD_BUFFER_MARKER_EXTENSION_NAME)) { g_vk.has_buffer_marker = 1; ext[n_ext++] = VK_AMD_BUFFER_MARKER_EXTENSION_NAME; }
+    n_ext += (uint32_t)vk_dlss_device_ext(ext + n_ext, 28 - (int)n_ext);
     // Graphics pipeline library: chained last so it can be dropped again when vk_caps_gpl declines it.
     void **gpl_link = NULL;
     if (has_ext(ep, ne, VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME) && has_ext(ep, ne, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME)) {
@@ -374,6 +378,8 @@ static int create_device(void) {
     vkGetDeviceQueue(g_vk.device, g_vk.gfx_family, 0, &g_vk.gfx_queue);
     if (g_vk.xfer_family != g_vk.gfx_family) vkGetDeviceQueue(g_vk.device, g_vk.xfer_family, 0, &g_vk.xfer_queue);
     else { g_vk.xfer_queue = g_vk.gfx_queue; g_vk.xfer_shared = 1; }
+    vk_dlss_bind(g_vk.device, g_vk.instance, g_vk.phys, g_vk.gfx_family,
+                 g_vk.comp_family != UINT32_MAX ? g_vk.comp_family : g_vk.gfx_family);
 
     VkPhysicalDeviceExternalMemoryHostPropertiesEXT emh = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT};
     VkPhysicalDeviceProperties2 p2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &emh};
