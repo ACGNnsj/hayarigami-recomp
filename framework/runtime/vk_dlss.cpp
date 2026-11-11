@@ -100,6 +100,7 @@ static char g_opt_logged[32]; // "mode@WxH" already reported by slDLSSGetOptimal
 // cached native instance/device. g_want_fg gates all routing: when FG is off every
 // vk_dlss_proc* call returns NULL and the engine runs its validated native path.
 static int g_want_fg;
+static int g_nr_staged; // Phase 3: sl.dlss_nr.dll found next to the executable
 static PFN_vkGetInstanceProcAddr f_sl_iproc;
 static PFN_vkGetDeviceProcAddr f_sl_dproc;
 static VkInstance g_sl_instance = VK_NULL_HANDLE;
@@ -142,8 +143,28 @@ void vk_dlss_early(void) {
     // outside the SDK (community-patched nvngx_dlssnr 310.9.x): stage sl.dlss_nr.dll next to the
     // executable to arm this. The NR evaluate path is not wired yet, so a staged DLL only logs
     // readiness here; rendering stays on the SR/FG path until the wiring lands.
+    g_nr_staged = 0;
     if (want_nr) {
-        void *nr = plat_lib_open("sl.dlss_nr.dll");
+        // NOTE: bare plat_lib_open only searches System32 (see STATUS 2026-11-11 pit 3) -
+        // the NR DLL lives next to haya.exe, so probe the exe directory explicitly.
+        void *nr = NULL;
+        char exe2[MAX_PATH];
+        DWORD n2 = GetModuleFileNameA(NULL, exe2, (DWORD)sizeof exe2);
+        if (n2 > 0 && n2 < sizeof exe2) {
+            char *s2 = strrchr(exe2, '\\');
+            if (s2) {
+                char path2[MAX_PATH];
+                size_t dl = (size_t)(s2 - exe2);
+                if (dl + 20 < sizeof path2) {
+                    memcpy(path2, exe2, dl);
+                    path2[dl] = 0;
+                    strcat(path2, "\\sl.dlss_nr.dll");
+                    nr = plat_lib_open(path2);
+                }
+            }
+        }
+        if (!nr) nr = plat_lib_open("sl.dlss_nr.dll"); // last resort: default search
+        g_nr_staged = (nr != NULL);
         if (nr)
             rt_log("vk: DLSS-NR staged (sl.dlss_nr.dll found) - evaluate path not wired yet, SR/FG active");
         else
@@ -205,6 +226,7 @@ void vk_dlss_early(void) {
     if (want_dlss) feats[nfeats++] = sl::kFeatureDLSS;
     if (want_reflex) feats[nfeats++] = sl::kFeatureReflex;
     if (want_fg) feats[nfeats++] = sl::kFeatureDLSS_G;
+    if (g_nr_staged) feats[nfeats++] = sl::kFeatureDLSS_NR; // load the plugin so readiness is real, not a file check
     pref.featuresToLoad = feats;
     pref.numFeaturesToLoad = nfeats;
     pref.flags |= sl::PreferenceFlags::eUseFrameBasedResourceTagging; // slSetTagForFrame requires this
@@ -336,6 +358,17 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
         }
         g_fg_ok = r == sl::Result::eOk && f_dlssg_options && f_dlssg_state;
         rt_log("vk: DLSS-G %s (slIsFeatureSupported %d)", g_fg_ok ? "ready" : "not supported", (int)r);
+    }
+    if (g_nr_staged) {
+        // The NR options struct lives in sl_dlss_nr.h (absent from SDK 2.14.16): resolve-only,
+        // proving the staged plugin actually loads. Never called without the struct layout.
+        sl::Result r = f_supported(sl::kFeatureDLSS_NR, adapter);
+        void *p = NULL;
+        if (r == sl::Result::eOk &&
+            f_featurefn(sl::kFeatureDLSS_NR, "slDLSSNRSetOptions", p) == sl::Result::eOk && p)
+            rt_log("vk: DLSS-NR plugin loaded (slDLSSNRSetOptions resolved) - evaluate needs sl_dlss_nr.h");
+        else
+            rt_log("vk: DLSS-NR staged but plugin reports not supported (%d)", (int)r);
     }
     rt_log("vk: DLSS initialised");
     return (g_usable || g_reflex_ok || g_fg_ok) ? 1 : 0;

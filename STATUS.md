@@ -359,3 +359,13 @@ export XC2_INPUT_FORCE=1          # 窗口拿不到前台时也要能按键
 - Phase 3：XC2_DLSS_NR（off|on，RESTART + display）。SDK 无 sl.dlss_nr.dll（全仓无此文件），开关只做 DLL 探测 + 优雅降级
   （有→记 staged 待 wiring；无→记 staying on SR/FG），渲染不受影响。社区 310.9.x DLL 手工扔 haya.exe 旁即 arm。build_game.py 注释已留 staging 说明。
 - 构建教训：scoped enum DLSSGStatus 不能 !=0（eOk 比较）；build_haya.sh set -e + step1 stdout>/dev/null，出错时直接手动跑 step1 看 ninja 行。
+## 2026-11-11 Phase 3 NR 真 DLL 到位（用户指认 DLSS Swapper 5 payload）
+- 用户指出 C:/.../DLSS 5 Swapper/resources/payload/streamline/sl.dlss_nr.dll（401KB + nvngx_dlssnr.dll 165MB，Swapper 5 自带 9-29 版）。
+  SDK 早就认识 kFeatureDLSS_NR=1004（sl_core_types.h/sl_helpers.h），但 include/ 下无 sl_dlss_nr.h——options 结构体布局未知。
+- 已做（vk_dlss.cpp）：XC2_DLSS_NR=on 时按 exe 全路径探测 sl.dlss_nr.dll（STATUS 坑 #3：裸名只搜 System32，这次又中一次）；
+  找到即 featuresToLoad += DLSS_NR（真加载，不是文件检查），bind 里经 slGetFeatureFunction 取 slDLSSNRSetOptions（resolve-only，不调）。
+- 实测（NR=on，DLL 已拷 build/v0）：probe 命中 → 插件被 pluginManager 接管（不再 ignoring）→
+  slDLSSNRSetOptions 解析失败，插件自报 not supported (32)：“check valid nvngx_dlssnr.dll or driver supports DLSS-NR”。
+  本机驱动 32.0.16.2114（R572，2025-01），大概率太老（NR 要 R575+ 的 neural shading 支持）。
+- 结论：P3 开关链路端到端验证完毕（探测→加载→插件自检→优雅降级，渲染不受影响）。
+  全 wiring 待两样东西：① sl_dlss_nr.h（新版 Streamline SDK 才有 options 结构体）；② 支持 NR 的新驱动。DLL 留 build/v0 本地（git-ignored，不进仓）。
