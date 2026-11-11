@@ -323,7 +323,10 @@ static int make_image(VkCtx *c, int i, int p, uint32_t w, uint32_t h) {
 
 static void wait_idle(VkCtx *c) {   // earlier frames may still read the old images; as vk_fsr.c ensure_images
     vk_queue_lock();
-    vkDeviceWaitIdle(c->device);
+    {
+        PFN_vkDeviceWaitIdle sl = (PFN_vkDeviceWaitIdle)vk_dlss_proc("vkDeviceWaitIdle");
+        (sl ? sl : vkDeviceWaitIdle)(c->device);
+    }
     vk_queue_unlock();
 }
 

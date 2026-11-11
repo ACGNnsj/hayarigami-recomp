@@ -103,7 +103,10 @@ static int ensure_images(VkCtx *c, uint32_t w, uint32_t h) {
     // A swapchain size change: earlier presents may still read the old images. vkDeviceWaitIdle needs every queue
     // externally synchronized, so it holds the queue lock like a submission.
     vk_queue_lock();
-    vkDeviceWaitIdle(c->device);
+    {
+        PFN_vkDeviceWaitIdle sl = (PFN_vkDeviceWaitIdle)vk_dlss_proc("vkDeviceWaitIdle");
+        (sl ? sl : vkDeviceWaitIdle)(c->device);
+    }
     vk_queue_unlock();
     free_images(c);
     for (int i = 0; i < 2; i++) {
@@ -161,7 +164,14 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     int cw = crop[2], ch = crop[3];
     int is_fsr = !strcmp(cfg_value("XC2_UPSCALER"), "fsr");
     int is_dlss = !strcmp(cfg_value("XC2_UPSCALER"), "dlss") && vk_dlss_available();
-    if ((!is_fsr && !is_dlss) || (!is_dlss && dw <= (uint32_t)cw && dh <= (uint32_t)ch) || !fmt) return 0;
+    if ((!is_fsr && !is_dlss) || (!is_dlss && dw <= (uint32_t)cw && dh <= (uint32_t)ch) || !fmt) {
+        static int nq = 0;
+        if (++nq % 600 == 1)
+            rt_log("vk: DLSS probe: record early-out (is_fsr=%d is_dlss=%d fmt=%u upscaler=%s mode=%s g=%s)",
+                   is_fsr, is_dlss, fmt, cfg_value("XC2_UPSCALER"), cfg_value("XC2_DLSS_MODE"),
+                   cfg_value("XC2_DLSS_G"));
+        return 0;
+    }
     VkCtx *c = vk_ctx();
     if (!F.tried) init(c);
     if (!F.ok || !ensure_images(c, dw, dh)) return 0;
@@ -174,10 +184,17 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
                                 .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
     if (vkCreateImageView(c->device, &vi, NULL, &F.src_view[slot]) != VK_SUCCESS) {
         F.src_view[slot] = VK_NULL_HANDLE;
+        rt_log("vk: DLSS probe: src view creation failed");
         return 0;
     }
     // DLSS on the present path: the replay note only matches XC2 resolves, so other games upscale the final
     // picture here with synthetic static inputs (see vk_fsr3_synth). Needs no FSR library or context.
+    { // FG probe: gate census, remove after
+        static int n = 0;
+        if (++n % 60 == 1)
+            rt_log("vk: DLSS gate census %d: upscaler=%s avail=%d dlaa=%d fmt=%u %dx%d->%ux%u", n,
+                   cfg_value("XC2_UPSCALER"), vk_dlss_available(), vk_dlss_dlaa(), fmt, cw, ch, dw, dh);
+    }
     if (!strcmp(cfg_value("XC2_UPSCALER"), "dlss") && vk_dlss_available() &&
         ((dw > (uint32_t)cw || dh > (uint32_t)ch) || vk_dlss_dlaa()) && fmt) {
         VkImage sdepth = VK_NULL_HANDLE, smvec = VK_NULL_HANDLE, sout = VK_NULL_HANDLE;

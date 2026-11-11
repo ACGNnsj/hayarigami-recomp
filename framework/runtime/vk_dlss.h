@@ -28,6 +28,20 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
 // 1 when a dispatch may run: the library loaded, the device bound, the adapter supports DLSS, and the mode is not off.
 int vk_dlss_available(void);
 int vk_dlss_dlaa(void); // available and XC2_DLSS_MODE=dlaa: run at native resolution
+// Phase 2: 1 when XC2_DLSS_G=on (Reflex forced on) and the FG plugin bound + supported: call
+// vk_dlss_fg_tick once per presented frame; the tick polls slDLSSGGetState and logs the interpolation proof.
+int vk_dlss_fg_on(void);
+void vk_dlss_fg_tick(void);
+// Phase 2 manual hooking (ProgrammingGuideManualHooking.md 1.1): when XC2_DLSS_G=on the
+// 8 Vulkan dispatch functions below must resolve through sl.interposer.dll so its present
+// and swapchain hooks fire; without this DLSS-G applies cleanly but presents 0 frames.
+// Returns SL's version of the named function, or NULL (call the native one) when FG is
+// off, the bridge is inactive, or the device is not bound yet. Resolved lazily on first
+// use; concurrent first-use from two threads stores the same value (idempotent).
+void *vk_dlss_proc(const char *name);
+// Same, for the two instance-level functions (surface create/destroy): the instance is
+// passed because surface creation can precede vk_dlss_bind.
+void *vk_dlss_proc_inst(void *instance, const char *name);
 // One upscale on cmd (the replay thread, like FSR's dispatch): colour/depth/motion in SHADER_READ_ONLY, out in
 // GENERAL, all single-layer 2D. mvscale maps the motion values to [-1,1]; near/far/fov describe the game's camera.
 // reset clears DLSS history (a camera cut, or the first frame). Returns 1 on success.

@@ -53,6 +53,7 @@
 #include "nvn_hmap.h"
 #include "platform/platform.h"
 #include "tex.h"
+#include "vk_dlss.h" // Phase 2: wait-idle via the SL interposer when DLSS-G is on
 
 #define LOG_ONCE(...) do { static volatile int32_t once_; if (!plat_xchg32(&once_, 1)) rt_log(__VA_ARGS__); } while (0)
 
@@ -3126,7 +3127,10 @@ void vk_pipeline_shutdown(void) {
     workers_drain();   // jobs point at layouts and Pipe entries freed below
     vk_pipeline_save();
     plat_mutex_lock(&P.lock);
-    vkDeviceWaitIdle(P.device);
+    {
+        PFN_vkDeviceWaitIdle sl = (PFN_vkDeviceWaitIdle)vk_dlss_proc("vkDeviceWaitIdle");
+        (sl ? sl : vkDeviceWaitIdle)(P.device);
+    }
     for (int i = 0; i < PIPE_BUCKETS; i++) {
         for (Pipe *p = pipes[i], *n; p; p = n) {
             n = p->next;

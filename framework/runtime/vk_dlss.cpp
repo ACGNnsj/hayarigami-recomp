@@ -21,6 +21,14 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
 }
 int vk_dlss_available(void) { return 0; }
 int vk_dlss_dlaa(void) { return 0; }
+void *vk_dlss_proc(const char *name) {
+    (void)name;
+    return NULL;
+}
+void *vk_dlss_proc_inst(void *instance, const char *name) {
+    (void)instance, (void)name;
+    return NULL;
+}
 int vk_dlss_dispatch(void *cmd, void *color, void *color_view, uint32_t color_format, void *depth, void *depth_view,
                      uint32_t depth_format, void *mvec, void *mvec_view, uint32_t mvec_format, uint32_t rw, uint32_t rh,
                      uint32_t ow, uint32_t oh, const float jitter[2], const float mvscale[2], float near_z, float far_z,
@@ -50,6 +58,8 @@ void vk_dlss_release(void) {}
 #include <sl.h>
 #include <sl_consts.h>
 #include <sl_dlss.h>
+#include <sl_dlss_g.h>
+#include <sl_reflex.h>
 #include <sl_helpers_vk.h>
 
 extern "C" {
@@ -71,16 +81,34 @@ static PFun_slDLSSGetOptimalSettings *f_optimal;
 static PFun_slEvaluateFeature *f_evaluate;
 static PFun_slSetVulkanInfo *f_vulkan;
 static PFun_slGetFeatureFunction *f_featurefn;
+static PFun_slReflexSetOptions *f_reflex_options;
+static PFun_slReflexSleep *f_reflex_sleep; // bound in bind; called in dispatch (thread safe)
+static PFun_slDLSSGSetOptions *f_dlssg_options;
+static PFun_slDLSSGGetState *f_dlssg_state;
 static void *g_feat; // sl.dlss.dll: DLSS-specific entry points
 
 static int g_inited, g_usable;
+static int g_reflex_ok, g_fg_ok, g_fg_applied; // Phase 2: Reflex + single frame generation
 static int g_warned; // bits of warn_once below
-static const char *g_req_instance[8];
-static const char *g_req_device[16];
+static const char *g_req_instance[16];
+static const char *g_req_device[32];
 static int g_n_instance, g_n_device;
 static uint32_t g_frame;
 static sl::ViewportHandle g_viewport{0};
 static char g_opt_logged[32]; // "mode@WxH" already reported by slDLSSGetOptimalSettings
+// Phase 2 manual hooking: SL's own vkGetInstanceProcAddr (from sl.interposer.dll) plus the
+// cached native instance/device. g_want_fg gates all routing: when FG is off every
+// vk_dlss_proc* call returns NULL and the engine runs its validated native path.
+static int g_want_fg;
+static PFN_vkGetInstanceProcAddr f_sl_iproc;
+static PFN_vkGetDeviceProcAddr f_sl_dproc;
+static VkInstance g_sl_instance = VK_NULL_HANDLE;
+static VkDevice g_sl_device = VK_NULL_HANDLE;
+static const char *kSlProcNames[8] = {
+    "vkQueuePresentKHR", "vkCreateSwapchainKHR", "vkDestroySwapchainKHR", "vkGetSwapchainImagesKHR",
+    "vkAcquireNextImageKHR", "vkDeviceWaitIdle", "vkCreateWin32SurfaceKHR", "vkDestroySurfaceKHR"
+};
+static void *g_sl_procs[8]; // SL trampolines, resolved lazily (idempotent same-value stores)
 
 static void warn_once(int bit, const char *what) {
     if (g_warned & bit) return;
@@ -102,7 +130,26 @@ static void *sym(const char *name) {
 void vk_dlss_early(void) {
     if (g_inited) return;
     g_inited = 1;
-    if (strcmp(cfg_value("XC2_UPSCALER"), "dlss")) return; // FSR path: never touch Streamline
+    int want_dlss = !strcmp(cfg_value("XC2_UPSCALER"), "dlss");
+    int want_fg = !strcmp(cfg_value("XC2_DLSS_G"), "on");
+    int want_reflex = !!strcmp(cfg_value("XC2_REFLEX"), "off");
+    int want_nr = !strcmp(cfg_value("XC2_DLSS_NR"), "on");
+    if (want_fg && !want_reflex) {
+        rt_log("vk: DLSS-G needs Reflex, forcing it on (eLowLatency)");
+        want_reflex = 1;
+    }
+    // Phase 3 (2026-11-11): DLSS 5 Neural Rendering DLL-override switch. The NR plugin ships
+    // outside the SDK (community-patched nvngx_dlssnr 310.9.x): stage sl.dlss_nr.dll next to the
+    // executable to arm this. The NR evaluate path is not wired yet, so a staged DLL only logs
+    // readiness here; rendering stays on the SR/FG path until the wiring lands.
+    if (want_nr) {
+        void *nr = plat_lib_open("sl.dlss_nr.dll");
+        if (nr)
+            rt_log("vk: DLSS-NR staged (sl.dlss_nr.dll found) - evaluate path not wired yet, SR/FG active");
+        else
+            rt_log("vk: DLSS-NR on but sl.dlss_nr.dll not staged next to the executable - staying on SR/FG");
+    }
+    if (!want_dlss && !want_fg && !want_reflex && !want_nr) return; // FSR path: never touch Streamline
 #ifdef _WIN32
     char exe[MAX_PATH], path[MAX_PATH];
     DWORD n = GetModuleFileNameA(NULL, exe, (DWORD)sizeof exe);
@@ -149,11 +196,21 @@ void vk_dlss_early(void) {
         g_lib = NULL;
         return;
     }
+    f_sl_iproc = (PFN_vkGetInstanceProcAddr)sym("vkGetInstanceProcAddr");
+    if (want_fg && !f_sl_iproc)
+        rt_log("vk: DLSS-G warn: interposer hides vkGetInstanceProcAddr, present stays native (FG will show 0 frames)");
     sl::Preferences pref{};
-    sl::Feature dlss[] = {sl::kFeatureDLSS};
-    pref.featuresToLoad = dlss;
-    pref.numFeaturesToLoad = 1;
+    sl::Feature feats[3];
+    uint32_t nfeats = 0;
+    if (want_dlss) feats[nfeats++] = sl::kFeatureDLSS;
+    if (want_reflex) feats[nfeats++] = sl::kFeatureReflex;
+    if (want_fg) feats[nfeats++] = sl::kFeatureDLSS_G;
+    pref.featuresToLoad = feats;
+    pref.numFeaturesToLoad = nfeats;
     pref.flags |= sl::PreferenceFlags::eUseFrameBasedResourceTagging; // slSetTagForFrame requires this
+    g_want_fg = want_fg;
+    if (want_fg)
+        pref.flags |= sl::PreferenceFlags::eUseManualHooking; // FG presents route via the interposer (1.1)
     pref.renderAPI = sl::RenderAPI::eVulkan;
     pref.engine = sl::EngineType::eCustom; // an engine id stands in for the NVIDIA application id
     pref.engineVersion = "hayarigami-recomp";
@@ -169,17 +226,28 @@ void vk_dlss_early(void) {
         g_lib = NULL;
         return;
     }
-    sl::FeatureRequirements req{};
-    if (f_requirements(sl::kFeatureDLSS, req) == sl::Result::eOk) {
-        g_n_instance = req.vkNumInstanceExtensions < 8 ? (int)req.vkNumInstanceExtensions : 8;
-        g_n_device = req.vkNumDeviceExtensions < 16 ? (int)req.vkNumDeviceExtensions : 16;
-        for (int i = 0; i < g_n_instance; i++) g_req_instance[i] = req.vkInstanceExtensions[i];
-        for (int i = 0; i < g_n_device; i++) g_req_device[i] = req.vkDeviceExtensions[i];
+    g_n_instance = g_n_device = 0;
+    for (uint32_t fi = 0; fi < nfeats; fi++) {
+        sl::FeatureRequirements req{};
+        if (f_requirements(feats[fi], req) != sl::Result::eOk) continue;
+        for (uint32_t i = 0; i < req.vkNumInstanceExtensions && g_n_instance < 16; i++) {
+            const char *e = req.vkInstanceExtensions[i];
+            int dup = 0;
+            for (int k = 0; k < g_n_instance; k++) dup |= !strcmp(g_req_instance[k], e);
+            if (!dup) g_req_instance[g_n_instance++] = e;
+        }
+        for (uint32_t i = 0; i < req.vkNumDeviceExtensions && g_n_device < 32; i++) {
+            const char *e = req.vkDeviceExtensions[i];
+            int dup = 0;
+            for (int k = 0; k < g_n_device; k++) dup |= !strcmp(g_req_device[k], e);
+            if (!dup) g_req_device[g_n_device++] = e;
+        }
         if (req.vkNumFeatures12 + req.vkNumFeatures13)
             rt_log("vk: DLSS wants extra device features (12:%u 13:%u), attempting anyway", req.vkNumFeatures12,
                    req.vkNumFeatures13);
     }
     rt_log("vk: DLSS: Streamline initialised (+%d instance, +%d device extensions)", g_n_instance, g_n_device);
+    for (int i = 0; i < g_n_device; i++) rt_log("vk: DLSS device ext %d: %s", i, g_req_device[i]);
 }
 
 int vk_dlss_instance_ext(const char **out, int cap) {
@@ -196,6 +264,8 @@ int vk_dlss_device_ext(const char **out, int cap) {
 
 int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, unsigned comp_family) {
     if (!g_lib) return 0;
+    g_sl_instance = (VkInstance)instance; // manual-hooking proc resolution (Phase 2)
+    g_sl_device = (VkDevice)device;
     sl::VulkanInfo info{};
     info.device = (VkDevice)device;
     info.instance = (VkInstance)instance;
@@ -208,25 +278,80 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
         rt_log("vk: DLSS off: slSetVulkanInfo failed");
         return 0;
     }
+    int want_dlss = !strcmp(cfg_value("XC2_UPSCALER"), "dlss");
+    int want_reflex = !!strcmp(cfg_value("XC2_REFLEX"), "off");
+    int want_fg = !strcmp(cfg_value("XC2_DLSS_G"), "on");
+    if (want_fg && !want_reflex) want_reflex = 1; // forced + logged in early()
     sl::AdapterInfo adapter{};
     adapter.vkPhysicalDevice = phys;
-    sl::Result r = f_supported(sl::kFeatureDLSS, adapter);
-    if (r == sl::Result::eOk) {
-        // DLSS entry points resolve per-feature at runtime, only valid after the device is set.
-        void *p = NULL, *q = NULL;
-        if (f_featurefn(sl::kFeatureDLSS, "slDLSSSetOptions", p) == sl::Result::eOk) f_options = (PFun_slDLSSSetOptions *)p;
-        if (f_featurefn(sl::kFeatureDLSS, "slDLSSGetOptimalSettings", q) == sl::Result::eOk)
-            f_optimal = (PFun_slDLSSGetOptimalSettings *)q;
-        if (!f_options || !f_optimal) rt_log("vk: DLSS off: feature functions unresolved");
+    if (want_dlss) {
+        sl::Result r = f_supported(sl::kFeatureDLSS, adapter);
+        if (r == sl::Result::eOk) {
+            // DLSS entry points resolve per-feature at runtime, only valid after the device is set.
+            void *p = NULL, *q = NULL;
+            if (f_featurefn(sl::kFeatureDLSS, "slDLSSSetOptions", p) == sl::Result::eOk)
+                f_options = (PFun_slDLSSSetOptions *)p;
+            if (f_featurefn(sl::kFeatureDLSS, "slDLSSGetOptimalSettings", q) == sl::Result::eOk)
+                f_optimal = (PFun_slDLSSGetOptimalSettings *)q;
+            if (!f_options || !f_optimal) rt_log("vk: DLSS off: feature functions unresolved");
+        }
+        g_usable = r == sl::Result::eOk && f_options && f_optimal;
+        rt_log("vk: DLSS %s (slIsFeatureSupported %d)", g_usable ? "ready" : "not supported on this adapter", (int)r);
     }
-    g_usable = r == sl::Result::eOk && f_options && f_optimal;
-    rt_log("vk: DLSS %s (slIsFeatureSupported %d)", g_usable ? "ready" : "not supported on this adapter", (int)r);
-    return g_usable;
+    if (want_reflex) {
+        sl::Result r = f_supported(sl::kFeatureReflex, adapter);
+        if (r == sl::Result::eOk) {
+            void *p = NULL;
+            if (f_featurefn(sl::kFeatureReflex, "slReflexSetOptions", p) == sl::Result::eOk)
+                f_reflex_options = (PFun_slReflexSetOptions *)p;
+        }
+        if (!f_reflex_sleep) {
+            void *s = NULL;
+            if (f_featurefn(sl::kFeatureReflex, "slReflexSleep", s) == sl::Result::eOk)
+                f_reflex_sleep = (PFun_slReflexSleep *)s;
+        }
+        if (f_reflex_options) {
+            sl::ReflexOptions ro{};
+            int boost = !strcmp(cfg_value("XC2_REFLEX"), "boost");
+            ro.mode = boost ? sl::eLowLatencyWithBoost : sl::eLowLatency;
+            if (f_reflex_options(ro) == sl::Result::eOk) {
+                g_reflex_ok = 1;
+                rt_log("vk: Reflex on (%s)", boost ? "boost" : "low latency");
+            } else {
+                rt_log("vk: Reflex rejected by slReflexSetOptions");
+            }
+        } else {
+            rt_log("vk: Reflex not supported on this adapter (%d)", (int)r);
+        }
+    }
+    if (want_fg) {
+        sl::Result r = f_supported(sl::kFeatureDLSS_G, adapter);
+        if (r == sl::Result::eOk) {
+            void *p = NULL, *q = NULL;
+            if (f_featurefn(sl::kFeatureDLSS_G, "slDLSSGSetOptions", p) == sl::Result::eOk)
+                f_dlssg_options = (PFun_slDLSSGSetOptions *)p;
+            if (f_featurefn(sl::kFeatureDLSS_G, "slDLSSGGetState", q) == sl::Result::eOk)
+                f_dlssg_state = (PFun_slDLSSGGetState *)q;
+            if (!f_dlssg_options || !f_dlssg_state) rt_log("vk: DLSS-G: feature functions unresolved");
+        }
+        g_fg_ok = r == sl::Result::eOk && f_dlssg_options && f_dlssg_state;
+        rt_log("vk: DLSS-G %s (slIsFeatureSupported %d)", g_fg_ok ? "ready" : "not supported", (int)r);
+    }
+    rt_log("vk: DLSS initialised");
+    return (g_usable || g_reflex_ok || g_fg_ok) ? 1 : 0;
 }
 
 int vk_dlss_available(void) {
-    return g_usable && strcmp(cfg_value("XC2_DLSS_MODE"), "off") != 0 &&
-           strcmp(cfg_value("XC2_UPSCALER"), "dlss") == 0;
+    int r = g_usable && strcmp(cfg_value("XC2_DLSS_MODE"), "off") != 0 &&
+            strcmp(cfg_value("XC2_UPSCALER"), "dlss") == 0;
+    if (!r && !g_usable) {
+        static int once = 0;
+        if (!once) {
+            once = 1;
+
+        }
+    }
+    return r;
 }
 
 int vk_dlss_dlaa(void) { return vk_dlss_available() && !strcmp(cfg_value("XC2_DLSS_MODE"), "dlaa"); }
@@ -336,13 +461,13 @@ int vk_dlss_dispatch(void *cmd, void *color, void *color_view, uint32_t color_fo
     sl::Resource r_in, r_out, r_depth, r_mvec;
     sl::ResourceTag t_in, t_out, t_depth, t_mvec;
     tag_resource(r_in, t_in, color, color_view, RO, color_format, rw, rh, sl::kBufferTypeScalingInputColor,
-                 sl::ResourceLifecycle::eOnlyValidNow, SAMPLED);
+                 sl::ResourceLifecycle::eValidUntilPresent, SAMPLED); // FG reads it at present
     tag_resource(r_out, t_out, out, out_view, GEN, out_format, ow, oh, sl::kBufferTypeScalingOutputColor,
                  sl::ResourceLifecycle::eOnlyValidNow, STORAGE);
     tag_resource(r_depth, t_depth, depth, depth_view, RO, depth_format, rw, rh, sl::kBufferTypeDepth,
                  sl::ResourceLifecycle::eValidUntilPresent, SAMPLED);
     tag_resource(r_mvec, t_mvec, mvec, mvec_view, RO, mvec_format, rw, rh, sl::kBufferTypeMotionVectors,
-                 sl::ResourceLifecycle::eOnlyValidNow, SAMPLED);
+                 sl::ResourceLifecycle::eValidUntilPresent, SAMPLED); // FG reads it at present
     const sl::ResourceTag tags[] = {t_in, t_out, t_depth, t_mvec};
     sl::Result tr = f_tag(*tok, vp, tags, 4, (sl::CommandBuffer *)cmd);
     if (tr != sl::Result::eOk) {
@@ -355,6 +480,16 @@ int vk_dlss_dispatch(void *cmd, void *color, void *color_view, uint32_t color_fo
         return 0;
     }
 
+    if (f_reflex_sleep) {
+        // Reflex frame pacing on the dispatch (replay) thread; slReflexSleep is thread safe.
+        // The driver keys frame-generation cadence off this. Log the first call only.
+        sl::Result sr = f_reflex_sleep(*tok);
+        static int sleep_logged;
+        if (!sleep_logged) {
+            sleep_logged = 1;
+            rt_log("vk: Reflex sleep first call (%d)", (int)sr);
+        }
+    }
     const sl::BaseStructure *inputs[] = {&vp};
     sl::Result r = f_evaluate(sl::kFeatureDLSS, *tok, inputs, 1, (sl::CommandBuffer *)cmd);
     if (r != sl::Result::eOk) {
@@ -366,13 +501,98 @@ int vk_dlss_dispatch(void *cmd, void *color, void *color_view, uint32_t color_fo
 }
 
 void vk_dlss_release(void) {
+
     g_usable = 0;
+    g_reflex_ok = g_fg_ok = g_fg_applied = 0;
+    f_reflex_options = NULL;
+    f_dlssg_options = NULL;
+    f_dlssg_state = NULL;
     g_n_instance = g_n_device = 0;
     g_frame = 0;
     g_opt_logged[0] = 0;
+    f_sl_iproc = NULL; // manual-hooking routing dies with SL
+    f_sl_dproc = NULL;
+    g_sl_instance = VK_NULL_HANDLE;
+    g_sl_device = VK_NULL_HANDLE;
+    for (int i = 0; i < 8; i++) g_sl_procs[i] = NULL;
     if (g_lib && f_shutdown) f_shutdown();
     g_lib = NULL;
     f_init = NULL;
+}
+
+int vk_dlss_fg_on(void) { return g_fg_ok && !strcmp(cfg_value("XC2_DLSS_G"), "on"); }
+
+// Once per presented frame (gfx_present.c, after vk_fsr_record): apply single-FG options on the
+// first tick, then poll slDLSSGGetState every 60 presents. numFramesActuallyPresented counts every
+// displayed frame since the previous call, so 120 per 60 real presents proves the generated frames
+// reach the screen; a nonzero DLSSGStatus names the blocker (bit 1 = Reflex not detected).
+void vk_dlss_fg_tick(void) {
+    if (!vk_dlss_fg_on() || !f_dlssg_state) return;
+    sl::ViewportHandle vp(0);
+    if (!g_fg_applied) {
+        if (!f_dlssg_options) return;
+        sl::DLSSGOptions o{};
+        o.mode = sl::DLSSGMode::eOn;
+        o.numFramesToGenerate = 1; // single frame generation: each real present displays twice
+        if (f_dlssg_options(vp, o) != sl::Result::eOk) {
+            rt_log("vk: DLSS-G slDLSSGSetOptions failed");
+            return;
+        }
+        g_fg_applied = 1;
+        rt_log("vk: DLSS-G single FG applied");
+    }
+    static int n = 0;
+    if (++n % 60) return;
+    sl::DLSSGState st{};
+    if (f_dlssg_state(vp, st, NULL) == sl::Result::eOk) {
+        if (st.status != sl::DLSSGStatus::eOk || st.numFramesActuallyPresented != 1)
+            rt_log("vk: DLSS-G state %u, actually presented %u per 60 (dispatches %u)", (unsigned)st.status,
+                   st.numFramesActuallyPresented, g_frame);
+        static int once = 0;
+        if (!once) {
+            once = 1;
+            rt_log("vk: DLSS-G caps: minWH %u, maxGen %u, vsyncOK %u", st.minWidthOrHeight,
+                   st.numFramesToGenerateMax, (unsigned)st.bIsVsyncSupportAvailable);
+        }
+    } else
+        rt_log("vk: DLSS-G slDLSSGGetState failed");
+}
+
+// Index of name in kSlProcNames, or -1. The last two are instance-level (surface).
+static int sl_proc_index(const char *name) {
+    for (int i = 0; i < 8; i++)
+        if (!strcmp(name, kSlProcNames[i])) return i;
+    return -1;
+}
+
+void *vk_dlss_proc(const char *name) {
+    int i = sl_proc_index(name);
+    if (i < 0 || i > 5) return NULL; // instance-level names go through vk_dlss_proc_inst
+    if (!g_lib || !g_want_fg || !f_sl_iproc || !g_sl_instance || !g_sl_device) return NULL;
+    if (g_sl_procs[i]) return g_sl_procs[i];
+    if (!f_sl_dproc) {
+        f_sl_dproc = (PFN_vkGetDeviceProcAddr)f_sl_iproc(g_sl_instance, "vkGetDeviceProcAddr");
+        if (!f_sl_dproc) return NULL;
+    }
+    void *p = (void *)f_sl_dproc(g_sl_device, name);
+    if (p) {
+        g_sl_procs[i] = p;
+        rt_log("vk: DLSS-G routing %s via the interposer", name);
+    }
+    return p;
+}
+
+void *vk_dlss_proc_inst(void *instance, const char *name) {
+    int i = sl_proc_index(name);
+    if (i < 6) return vk_dlss_proc(name); // device-level: same path
+    if (i < 0 || !g_lib || !g_want_fg || !f_sl_iproc || !instance) return NULL;
+    if (g_sl_procs[i]) return g_sl_procs[i];
+    void *p = (void *)f_sl_iproc((VkInstance)instance, name);
+    if (p) {
+        g_sl_procs[i] = p;
+        rt_log("vk: DLSS-G routing %s via the interposer", name);
+    }
+    return p;
 }
 
 #endif

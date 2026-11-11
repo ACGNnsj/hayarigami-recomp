@@ -27,6 +27,7 @@
 #include "cfg.h"
 #include "host.h"
 #include "platform/platform.h"
+#include "vk_dlss.h" // Phase 2: route present/swapchain via the SL interposer when DLSS-G is on
 
 #ifndef _WIN32
 #define __declspec(x)
@@ -365,7 +366,8 @@ VkResult vk_fg_images(VkDevice d, VkSwapchainKHR sc, uint32_t *n, VkImage *imgs)
         trace("images out");
         return r;
     }
-    return vkGetSwapchainImagesKHR(d, sc, n, imgs);
+    PFN_vkGetSwapchainImagesKHR p = (PFN_vkGetSwapchainImagesKHR)vk_dlss_proc("vkGetSwapchainImagesKHR");
+    return (p ? p : vkGetSwapchainImagesKHR)(d, sc, n, imgs);
 }
 
 VkResult vk_fg_acquire(VkDevice d, VkSwapchainKHR sc, uint64_t timeout, VkSemaphore sem, VkFence fence, uint32_t *idx) {
@@ -375,7 +377,8 @@ VkResult vk_fg_acquire(VkDevice d, VkSwapchainKHR sc, uint64_t timeout, VkSemaph
         trace("acquire out");
         return r;
     }
-    return vkAcquireNextImageKHR(d, sc, timeout, sem, fence, idx);
+    PFN_vkAcquireNextImageKHR p = (PFN_vkAcquireNextImageKHR)vk_dlss_proc("vkAcquireNextImageKHR");
+    return (p ? p : vkAcquireNextImageKHR)(d, sc, timeout, sem, fence, idx);
 }
 
 VkResult vk_fg_present(VkQueue q, const VkPresentInfoKHR *pi) {
@@ -385,7 +388,8 @@ VkResult vk_fg_present(VkQueue q, const VkPresentInfoKHR *pi) {
         trace("present out");
         return r;
     }
-    return vkQueuePresentKHR(q, pi);
+    PFN_vkQueuePresentKHR p = (PFN_vkQueuePresentKHR)vk_dlss_proc("vkQueuePresentKHR");
+    return (p ? p : vkQueuePresentKHR)(q, pi);
 }
 
 // Before the device goes away, and when the setting is turned off: stop presenting through the library, then destroy in

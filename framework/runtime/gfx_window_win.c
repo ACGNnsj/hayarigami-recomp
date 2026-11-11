@@ -14,6 +14,7 @@
 #include "gfx_wsys.h"
 #include "input.h"
 #include "input_win.h"
+#include "vk_dlss.h" // Phase 2: surface creation via the SL interposer when DLSS-G is on
 #include "nvn_api.h"
 #include "ui/menu.h"
 #include "vk.h"
@@ -292,7 +293,9 @@ VkSurfaceKHR wsys_surface(VkInstance inst) {
     VkWin32SurfaceCreateInfoKHR si = {.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
                                       .hinstance = GetModuleHandleW(NULL), .hwnd = g_hwnd};
     VkSurfaceKHR surface = VK_NULL_HANDLE;
-    VkResult r = vkCreateWin32SurfaceKHR(inst, &si, NULL, &surface);
+    PFN_vkCreateWin32SurfaceKHR sl =
+        (PFN_vkCreateWin32SurfaceKHR)vk_dlss_proc_inst(inst, "vkCreateWin32SurfaceKHR");
+    VkResult r = (sl ? sl : vkCreateWin32SurfaceKHR)(inst, &si, NULL, &surface);
     if (r != VK_SUCCESS) rt_log("gfx: vkCreateWin32SurfaceKHR failed (%d)", (int)r);
     return r == VK_SUCCESS ? surface : VK_NULL_HANDLE;
 }

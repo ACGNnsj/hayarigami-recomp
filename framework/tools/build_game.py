@@ -582,9 +582,12 @@ def copy_fsr3(exe_dir):
 def copy_dlss(exe_dir):
     """Put NVIDIA's Streamline libraries next to haya.exe, where runtime/vk_dlss.cpp loads them: the interposer
     (slInit and friends), the DLSS super-resolution plugin with its shared core, and the NGX model runner. Without
-    them XC2_UPSCALER=dlss falls back to the FSR path. Phase 2 adds sl.dlss_g.dll + nvngx_dlssg.dll here."""
+    them XC2_UPSCALER=dlss falls back to the FSR path. Phase 2 (sl.reflex.dll, sl.dlss_g.dll, nvngx_dlssg.dll,
+    NvLowLatencyVk.dll) is staged here too. Phase 3 sl.dlss_nr.dll is NOT in the SDK: stage the community
+    310.9.x DLL by hand next to haya.exe to arm XC2_DLSS_NR."""
     d = ROOT.parent / 'build' / 'sl-dl' / 'sdk' / 'bin' / 'x64'   # ROOT is framework/, the SDK sits in the repo build/
-    names = ('sl.interposer.dll', 'sl.dlss.dll', 'sl.common.dll', 'nvngx_dlss.dll')
+    names = ('sl.interposer.dll', 'sl.dlss.dll', 'sl.common.dll', 'nvngx_dlss.dll', 'sl.reflex.dll',
+             'sl.dlss_g.dll', 'nvngx_dlssg.dll', 'NvLowLatencyVk.dll')
     if not WIN:
         return
     for n in names:

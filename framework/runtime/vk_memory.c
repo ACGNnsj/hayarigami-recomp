@@ -21,6 +21,7 @@
 #include "nvn_pool_index.h"
 #include "vk.h"
 #include "platform/platform.h"
+#include "vk_dlss.h" // Phase 2: wait-idle via the SL interposer when DLSS-G is on
 
 // Timestamps for the tracking cost, in ns; qpc_ms converts.
 static uint64_t qpc(void) { return plat_now_ns(); }
@@ -2340,7 +2341,10 @@ void vk_mem_shutdown(void) {
     if (!c) return;
     vk_upload_flush(1);
     vk_queue_lock();
-    vkDeviceWaitIdle(c->device);
+    {
+        PFN_vkDeviceWaitIdle sl = (PFN_vkDeviceWaitIdle)vk_dlss_proc("vkDeviceWaitIdle");
+        (sl ? sl : vkDeviceWaitIdle)(c->device);
+    }
     vk_queue_unlock();
     vk_texture_shutdown();
     plat_rmutex_lock(&cmd_lock);

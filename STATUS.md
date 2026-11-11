@@ -346,3 +346,16 @@ export XC2_INPUT_FORCE=1          # 窗口拿不到前台时也要能按键
   (4) MSYS 工具链 spawn 的进程缺 SystemDrive→SHGetKnownFolderPath(ProgramData) 失败→NGX 无 manifest——验证 run 必须 export SystemDrive/SystemRoot/windir/PROGRAMDATA（用户双击无此问题）；
   (5) Result 19=eErrorInvalidIntegration（别数错），因 pref.flags 缺 eUseFrameBasedResourceTagging——slSetTagForFrame 强制要求。
 - DLSS-SR Phase 1 代码完工；待 Phase 2（DLSS-G 单 FG）+ Phase 3（5-NR 社区 DLL 开关）。重进游戏选 继续 读档验证仍可选待补（与 DLSS 无关）。
+## 2026-11-11 Phase 2 DLSS-G 单 FG armed + Phase 3 NR 开关（RTX 4080，10+ 轮 forensics）
+- FG 链路全通：vk_dlss_proc/_inst 代理（eUseManualHooking + SL vkGetInstanceProcAddr/DeviceProcAddr），12 处调用点改走 interposer；
+  5 个 device trampoline 经地址比对证实 HOOKED（sl 7FF946B8xxxx vs 真 vulkan-1 7FF8E17xxxx）。XC2_DLSS_G=on + XC2_REFLEX（FG 无 Reflex 报 bit1，代码无 Reflex 自动强制 eLowLatency）。
+- 证据（150s/330s/60s 多轮，标题 + 实机 classroom gameplay）：DLSS-G supported=0，state 恒 0，maxGen=1，caps minWH=100/vsyncOK=0；
+  渲染完好（BitBlt 截图亮度正常），present 经 trampoline 开销仅 +0.2~0.3ms（0.06 native → 0.2~0.39 routed，无 FG 推理负载）。
+- 1/60 定案（driver 真 idle，非计数器坏）：换 mailbox/immediate/全屏、FSR 对照、MV 3-tag/4-tag、8px drift 合成 MV——全部 1/60。
+  根因：引擎原生分辨率 present，note 路径永不 arm，driver 永远只见静态合成输入（flat depth + 零/假 MV）→ 无 motion 可插。
+  附带两发现：(1) SL 对 3-tag evaluate 静默毒化 g_usable（=0 后 dispatch 停摆，无日志；4-tag 恢复即好，机理未明——tag 数别乱动）；
+  (2) drift 实验有效（synth 首 dispatch 即 clear），8px 均匀 MV 仍 1/60 → 合成 MV 理论死。暂时关不掉的真相：要真 FG 必须 real engine MV/depth（note 路径），等于另一個大工程。
+- 日志已收敛到 warn-only：tick 只在 state!=eOk 或 presented!=1 时记一行；caps 记一次；routing 每 fn 一行。fg 最终态 = armed + healthy + idle（known limitation）。
+- Phase 3：XC2_DLSS_NR（off|on，RESTART + display）。SDK 无 sl.dlss_nr.dll（全仓无此文件），开关只做 DLL 探测 + 优雅降级
+  （有→记 staged 待 wiring；无→记 staying on SR/FG），渲染不受影响。社区 310.9.x DLL 手工扔 haya.exe 旁即 arm。build_game.py 注释已留 staging 说明。
+- 构建教训：scoped enum DLSSGStatus 不能 !=0（eOk 比较）；build_haya.sh set -e + step1 stdout>/dev/null，出错时直接手动跑 step1 看 ninja 行。
