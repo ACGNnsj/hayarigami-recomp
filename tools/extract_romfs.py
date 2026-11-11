@@ -14,12 +14,13 @@ def main():
     parser.add_argument('--keys',type=Path,required=True)
     parser.add_argument('--manifest',type=Path,default=Path('extracted/v0/extraction-manifest.json'))
     parser.add_argument('--output',type=Path,default=Path('extracted/v0/romfs'))
+    parser.add_argument('--title-id',default='010095B01AF94000')
     args=parser.parse_args(); require(not args.output.exists(),'Output already exists')
     manifest=json.loads(args.manifest.read_text());record=manifest['program'];keys=load_keys(args.keys)
     source=Path(manifest['source']);require(source.stat().st_size==manifest['source_size'],'Source size changed')
     with source.open('rb') as f:
         _,entries=container_entries(f,source.stat().st_size)
-        actual,hdr=program_nca(nca_inventory(f,entries,keys))
+        actual,hdr=program_nca(nca_inventory(f,entries,keys),title_id=args.title_id)
         require(actual['name']==record['name'] and actual['size']==record['size'] and
                 record_offset(actual)==record_offset(record),'Source Program NCA changed; extract ExeFS again')
         ctr_key=nca_ctr_key(hdr,keys,common_tickets(f,entries))
