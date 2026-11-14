@@ -1,11 +1,11 @@
-"""Build the shader translator: build/xlate/xc2_xlate.exe (Ryujinx 1.3.2 + patches, NativeAOT, SPIR-V for Vulkan).
+"""Build the shader translator: build/xlate/haya_xlate.exe (Ryujinx 1.3.2 + patches, NativeAOT, SPIR-V for Vulkan).
 
 Copies tools/vendor/ryujinx to build/xlate/ryujinx, applies tools/xlate/patches/*.patch there (tools/vendor stays
 byte-identical; 0001-0004 are MNG's, 0005-0009 are ours), then runs `dotnet publish`. Needs the .NET 10 SDK, the MSVC build
-tools and vswhere.exe (docs/building.md). Run with .venv. On Linux it builds build/xlate/xc2_xlate for linux-x64, which
+tools and vswhere.exe (docs/building.md). Run with .venv. On Linux it builds build/xlate/haya_xlate for linux-x64, which
 NativeAOT links with the system's clang (no MSVC); NativeAOT builds for the OS it runs on only.
 
-Next to the exe it writes xc2_xlate.id: the translator identity, a sha256 over everything the build reads (this script,
+Next to the exe it writes haya_xlate.id: the translator identity, a sha256 over everything the build reads (this script,
 Program.cs, the csproj, the patches, the vendor tree). runtime/gfx_shader.c puts it into every shader cache key, so a
 translator change re-keys the cache without a hand-made KEY_VERSION bump. --id-only writes it for the exe already built
 (the caller vouches that the exe matches the sources).
@@ -30,7 +30,7 @@ MNG_VENDOR = ROOT / "refs" / "MacNativeGames" / "vendor" / "ryujinx"
 XLATE = ROOT / "tools" / "xlate"
 BUILD = ROOT / "build" / "xlate"
 WIN = os.name == "nt"
-EXE = "xc2_xlate.exe" if WIN else "xc2_xlate"
+EXE = "haya_xlate.exe" if WIN else "haya_xlate"
 VSWHERE_DIR = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft Visual Studio" / "Installer"
 
 
@@ -134,7 +134,7 @@ def write_identity(exe: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--id-only", action="store_true", help="write xc2_xlate.id for the exe already built")
+    parser.add_argument("--id-only", action="store_true", help="write haya_xlate.id for the exe already built")
     parser.add_argument("--out", type=Path, help="build directory instead of build/xlate")
     parser.add_argument("--llvm", type=Path, help="Linux: an LLVM directory whose bin/clang and lld link the exe")
     parser.add_argument("--sysroot", type=Path, help="Linux: link against this sysroot's glibc instead of the host's "
