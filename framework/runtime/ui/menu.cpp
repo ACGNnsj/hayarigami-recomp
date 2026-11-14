@@ -381,7 +381,8 @@ static void list_gpus(VkInstance inst) {
 }
 
 // Window sizes: the common 16:9 and 16:10 sizes that fit the monitor, the 1920x1080 default and the current size.
-static const int kSizes[][2] = {{1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {1920, 1200}, {2560, 1440},
+static const int kSizes[][2] = {{1280, 720}, {1360, 768}, {1366, 768}, {1440, 900}, {1536, 864},
+                                {1600, 900}, {1680, 1050}, {1920, 1080}, {1920, 1200}, {2560, 1440},
                                 {2560, 1600}, {2880, 1800}, {3200, 1800}, {3840, 2160}};
 enum { MAX_SIZES = sizeof kSizes / sizeof *kSizes + 1 };
 
