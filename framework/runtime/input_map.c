@@ -16,8 +16,8 @@
 #define DEFAULT_KEYS \
     {KEY_W, B_SL_UP}, {KEY_A, B_SL_LEFT}, {KEY_S, B_SL_DOWN}, {KEY_D, B_SL_RIGHT},                  /* move */ \
     {KEY_UP, B_UP}, {KEY_LEFT, B_LEFT}, {KEY_DOWN, B_DOWN}, {KEY_RIGHT, B_RIGHT},       /* menus: arrows drive the dpad */ \
-    {KEY_MOUSE_L, B_A}, {KEY_MOUSE_R, B_ZL}, {KEY_Z, B_ZL}, {KEY_F, B_ZR}, {KEY_X, B_ZR}, \
-    {KEY_SPACE, B_A}, {KEY_ENTER, B_A}, {KEY_E, B_A}, {KEY_Q, B_L}, {KEY_R, B_R},                    /* VN: Space/Enter/E confirm */ \
+    {KEY_MOUSE_R, B_ZL}, {KEY_Z, B_ZL}, {KEY_F, B_ZR}, {KEY_X, B_ZR}, \
+    {KEY_SPACE, B_A}, {KEY_ENTER, B_A}, {KEY_E, B_A}, {KEY_MOUSE_L, B_A}, {KEY_Q, B_L}, {KEY_R, B_R},                    /* VN: Space/Enter/E confirm */ \
     {KEY_LSHIFT, B_B}, {KEY_BACKSPACE, B_B}, {KEY_LCTRL, B_STICK_L}, {KEY_C, B_STICK_R},            /* Backspace/Shift cancel (Esc is reserved by the menu) */ \
     {KEY_1, B_LEFT}, {KEY_2, B_UP}, {KEY_3, B_RIGHT}, {KEY_4, B_DOWN}, \
     {KEY_M, B_MINUS}

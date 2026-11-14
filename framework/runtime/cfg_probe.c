@@ -254,7 +254,7 @@ int probe_cfg(void) {
     dn[KEY_MOUSE_L] = 1;
     CHECK(input_map_buttons(dn) == 1ull << B_A, "keys: left mouse button is A");
     dn[KEY_MOUSE_R] = dn[KEY_Z] = 1;
-    CHECK(input_map_buttons(dn) == (1ull << B_Y | 1ull << B_ZL), "keys: right mouse button and Z both press ZL");
+    CHECK(input_map_buttons(dn) == (1ull << B_A | 1ull << B_ZL), "keys: mouse left is A, right mouse button and Z press ZL");
     memset(dn, 0, sizeof dn);
     dn[KEY_X] = dn[KEY_TAB] = dn[KEY_M] = dn[KEY_LCTRL] = dn[KEY_3] = 1;
     CHECK(input_map_buttons(dn) == (1ull << B_ZR | 1ull << B_MINUS | 1ull << B_STICK_L | 1ull << B_RIGHT),
@@ -370,7 +370,7 @@ int probe_cfg(void) {
     CHECK(!line[0], "edit: an action at its defaults needs no line");
     CHECK(input_map_set_key(&mp, B_A, 0, KEY_F) == B_ZR, "edit: F taken from ZR");
     input_map_line(&mp, B_A, line, sizeof line);
-    CHECK(!strcmp(line, "key:f, key:enter, key:e, pad:default"), "edit: A's line lists the remapped keys");
+    CHECK(!strcmp(line, "key:f, key:enter, key:e, key:mouse_l, pad:default"), "edit: A's line lists the remapped keys");
     input_map_line(&mp, B_ZR, line, sizeof line);
     CHECK(!strcmp(line, "key:x, pad:default"), "edit: ZR keeps X");
     CHECK(input_map_set_key(&mp, B_ZL, 1, KEY_NONE) == -1, "edit: clearing a key takes from no one");
