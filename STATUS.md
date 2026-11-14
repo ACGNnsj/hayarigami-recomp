@@ -405,3 +405,10 @@ real engine motion vectors (synth-input matrix exhausted: drift/mid-depth/static
 - 键位（同真 1+2 port）：方向键直驱十字键，空格/回车/E=确认（B_A），退格/Shift=取消（B_B），Esc 留给菜单（input_map.c, DEFAULT_KEY_COUNT 26→27）。
 - 命名：XC2_ 环境变量前缀改为 HAYA_，xc2.ini→haya.ini，XC2 Recomp→Hayarigami Recomp；旧 XC2_/XCX_ 变量与文件仍兼容（三级 fallback：HAYA_ > XC2_ > XCX_，mirror 真 1+2 d718a2f）。
 - 触及：framework/runtime 全套（102 文件机械改名 + cfg.c/cfg.h/cfg_probe.c fallback 结构）与 tools/*.sh 启动脚本。
+
+## 2026-11-14 — 123 图标+标题（Gematsu 官方图 + 流行之神123）
+
+- 图标：tools/haya123logo.jpg（Gematsu 1·2·3 Pack 原图）横向拉满、纵向居中裁 1592 方形，tools/make_haya123_icon.py 生成 framework/runtime/xc2.ico（沿用 xc2.rc，不改名）。
+- 标题：SDL/Win32 窗口标题改为流行之神123（此前 python \xNN 转义写成双重编码 mojibake，改用 \u 直写后二进制 u16 命中）。
+- 另修 romfs 缺失报错文案 next to xc2→next to haya.exe（XC2_ROMFS 那半早已由规则改掉）。
+- 验证：exe 内嵌 6 图标首个 PNG 为 logo；窗口标题栏截图确认；probe-cfg ok。播片黑屏与本轮无关（见正文）。
