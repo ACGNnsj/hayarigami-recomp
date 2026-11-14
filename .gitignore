@@ -9,3 +9,4 @@ __pycache__/
 fs_progress.log
 # IDE state.
 .idea/
+dist/
