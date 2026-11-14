@@ -44,7 +44,7 @@ static const char *const known[] = {
     "BIND_ZL", "BIND_ZR", "BLOCK_VIEWS_3D", "CLOTH_REALTIME", "CORE_DIAG", "CORE_FLOAT", "CRIT", "CRIT_OUT", "CUTSCENE_30", "DESC_TEMPLATE", "DEVICE_PROFILE", "DLSS_MODE", "DLSS_G", "DLSS_NR", "DRAW_CALLERS", "DUMP", "DUMP_BUF", "DUMP_DIR", "DUMP_LOG", "DUMP_MESH", "DUMP_ONLY", "DUMP_PASS", "DUMP_SKIP_RUNS", "DUMP_TEX", "DUMP_UBO",
     "EXEFS", "FEEDBACK", "FEEDBACK_SNAP", "FIX_C0", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES", "FLIGHT_SPIKE_MS",
     "FLIGHT_THUMBS", "FPS60", "FPS_LIMIT", "FRAME_GEN", "FRAME_GUARD", "FREEZE_IDLE", "FREE_CORES", "FSR3", "FSR_VERSION", "FULLSCREEN", "GATHER_BIAS", "GPL", "GPL_DRAW_BUILD", "GPU",
-    "GPU_INDEX", "GPU_NAME", "HIGHFPS_FIX", "HID_TRACE", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "JOB_POLL", "LANG", "LIB_PREBUILD",
+    "GPU_INDEX", "GPU_NAME", "HIGHFPS_FIX", "HID_TRACE", "INPUT", "INPUT_FORCE", "INPUT_RECORD", "INPUT_SCRIPT", "JOB_POLL", "LANG", "LIB_PREBUILD",
     "LIB_PREBUILD_KEEP", "LIB_PREBUILD_THREADS", "LOCALE", "LOD_GUARD", "LSTICK_DEADZONE", "MEMORY", "MENU_LANG", "MENU_TEST",
     "MENU_TEST_DIR", "MENU_TEST_SET", "MINIMAL_LAYOUT", "MIRROR_GAP", "MIRROR_STAGE", "MODS_DIR", "MODS_DISABLED", "MODS_ORDER", "MOTION", "MOUSE_SENS", "MOVIE_HOST", "MOVIE_PACE",
     "ONE_PER_CORE", "ONLY_PROG", "OPERATION_MODE", "OQ_VISIBLE", "OUTPUT_RES", "PAD_LAYOUT", "PATCH_OUTPUT", "PATCH_SCENE", "PERF_OVERLAY", "PERF_SLOW_MS", "PICTURE_FIT", "PIPELINE_CACHE", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_SYNC", "PIPE_WAIT",
@@ -74,7 +74,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"VOLUME", "audio"},
     {"MOTION", "input"}, {"RUMBLE_STRENGTH", "input"}, {"RUMBLE_CURVE", "input"}, {"RUMBLE_TRIGGERS", "input"},
     {"PAD_LAYOUT", "input"}, {"PROMPTS", "input"}, {"STICK_DEADZONE", "input"}, {"LSTICK_DEADZONE", "input"}, {"RSTICK_DEADZONE", "input"},
-    {"MOUSE_SENS", "input"}, {"WALK_KEY", "input"}, {"WALK_SCALE", "input"}, {"INPUT_RECORD", "input"},
+    {"MOUSE_SENS", "input"}, {"WALK_KEY", "input"}, {"WALK_SCALE", "input"}, {"INPUT_RECORD", "input"}, {"INPUT_FORCE", "input"},
     {"BIND_A", "input"}, {"BIND_B", "input"}, {"BIND_X", "input"}, {"BIND_Y", "input"}, {"BIND_LCLICK", "input"},
     {"BIND_RCLICK", "input"}, {"BIND_L", "input"}, {"BIND_R", "input"}, {"BIND_ZL", "input"}, {"BIND_ZR", "input"},
     {"BIND_PLUS", "input"}, {"BIND_MINUS", "input"}, {"BIND_LEFT", "input"}, {"BIND_UP", "input"},
@@ -151,6 +151,7 @@ static const CfgMeta metas[] = {
     {"TRACE", "", NULL, RESTART}, {"FLIGHT", "0", "0|1", RESTART}, {"FLIGHT_SPIKE_MS", "100", "0..60000", RESTART},
     {"HID_TRACE", "0", "0|1", RESTART},
     {"INPUT_RECORD", "", NULL, RESTART},
+    {"INPUT_FORCE", "0", "0|1", LIVE},
 };
 
 static int is_known(const char *key) {
