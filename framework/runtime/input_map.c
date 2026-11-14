@@ -17,10 +17,10 @@
     {KEY_W, B_SL_UP}, {KEY_A, B_SL_LEFT}, {KEY_S, B_SL_DOWN}, {KEY_D, B_SL_RIGHT},                  /* move */ \
     {KEY_UP, B_UP}, {KEY_LEFT, B_LEFT}, {KEY_DOWN, B_DOWN}, {KEY_RIGHT, B_RIGHT},       /* menus: arrows drive the dpad */ \
     {KEY_MOUSE_L, B_Y}, {KEY_MOUSE_R, B_ZL}, {KEY_Z, B_ZL}, {KEY_F, B_ZR}, {KEY_X, B_ZR}, \
-    {KEY_SPACE, B_A}, {KEY_ENTER, B_A}, {KEY_E, B_A}, {KEY_Q, B_L}, {KEY_R, B_R},                    /* VN: Space/Enter/E/Tab confirm */ \
+    {KEY_SPACE, B_A}, {KEY_ENTER, B_A}, {KEY_E, B_A}, {KEY_Q, B_L}, {KEY_R, B_R},                    /* VN: Space/Enter/E confirm */ \
     {KEY_LSHIFT, B_B}, {KEY_BACKSPACE, B_B}, {KEY_LCTRL, B_STICK_L}, {KEY_C, B_STICK_R},            /* Backspace/Shift cancel (Esc is reserved by the menu) */ \
     {KEY_1, B_LEFT}, {KEY_2, B_UP}, {KEY_3, B_RIGHT}, {KEY_4, B_DOWN}, \
-    {KEY_TAB, B_A}, {KEY_M, B_MINUS}
+    {KEY_M, B_MINUS}
 
 // By position: south is Switch B, east A, west Y, north X (Nintendo layout); the Xbox layout swaps A with B and X with Y
 // (south A, as the Xbox labels; cross A on a PlayStation pad). The triggers are ZL and ZR.
@@ -31,7 +31,7 @@
     {PAD_ZR, B_ZR}
 #define NINTENDO_PADS DEFAULT_PADS(B_B, B_A, B_Y, B_X)
 #define XBOX_PADS DEFAULT_PADS(B_A, B_B, B_X, B_Y)
-enum { DEFAULT_KEY_COUNT = 28, DEFAULT_PAD_COUNT = 16 };
+enum { DEFAULT_KEY_COUNT = 27, DEFAULT_PAD_COUNT = 16 };
 _Static_assert(sizeof (Binding[]){DEFAULT_KEYS} / sizeof (Binding) == DEFAULT_KEY_COUNT, "DEFAULT_KEY_COUNT");
 
 static const InputMap defaults = {{DEFAULT_KEYS}, DEFAULT_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},
