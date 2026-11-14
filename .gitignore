@@ -10,3 +10,4 @@ fs_progress.log
 # IDE state.
 .idea/
 dist/
+.local/
