@@ -19,7 +19,7 @@ for f in patches romfs ov_zstd; do $CL -c -O2 -g -Wall -fno-strict-aliasing -mar
 .venv/Scripts/python.exe tools/gen_modules.py >/dev/null
 $CL -c -O1 -fno-strict-aliasing -march=x86-64-v3 -Iframework/runtime -Ibuild/gen-all build/v0/modules.c -o build/v0/modules.o
 # 5. link
-$CL -fuse-ld=lld -Wl,--stack,16777216 -o build/v0/haya.exe \
+$CL -fuse-ld=lld -Wl,--stack,16777216 -Wl,/subsystem:windows -o build/v0/haya.exe \
   build/rtlib/obj/runtime/*.o build/rtobj2/*.o build/rtobj2/platform/*.o build/rtobj2/ui/*.o build/rtobj2/imgui/*.o build/rtobj2/backends/*.o \
   $(find build/genobj -name '*.o') build/v0/modules.o \
   -lpsapi -lbcrypt -lvulkan-1 -luser32 -lgdi32 -ldwmapi -lwinmm -lSDL3 -lopus -l:libvpx.a -lmfplat -lmfuuid -lole32 -l:libzstd.a -l:libstdc++.a -l:libwinpthread.a
