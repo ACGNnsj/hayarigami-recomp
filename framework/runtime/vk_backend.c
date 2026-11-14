@@ -11,7 +11,7 @@
 // the frame's display time from the pacer (nvn_api_obj.c), so present-to-present intervals stay even whatever the
 // replay took. The blit is already on the queue, so the wait blocks no submission.
 //
-// Asynchronous replay (XC2_REPLAY_ASYNC; by default on where the VRAM mirrors take submit-time copies, vk_replay_async):
+// Asynchronous replay (HAYA_REPLAY_ASYNC; by default on where the VRAM mirrors take submit-time copies, vk_replay_async):
 // nvnQueueSubmitCommands and nvnQueuePresentTexture only queue; what the GPU reads from guest memory is copied in the
 // submit call first (vk_be_submit). Each item gets its timeline value at enqueue (vk_sync_reserve), in queue
 // order; the replay thread runs the synchronous submit and present bodies in that order, so every value is signalled
@@ -73,7 +73,7 @@ static void present_main(void *arg) {
         if (!vk_fg_active()) wait_until(j.at);   // frame generation paces its own two presents (vk_fg.c)
         uint64_t t1 = kern_now_ns();
         vk_present_flip();
-        // XC2_TRACE=present: one line per present: the host present's interval, the interval of the game's present
+        // HAYA_TRACE=present: one line per present: the host present's interval, the interval of the game's present
         // calls (when the host present went out before back-edge pacing), the wait and how far past its target it went
         if (rt_trace & RT_TRACE_PRESENT)
             rt_log("present: frame %llu interval %.3f ms, game %.3f ms, waited %.3f ms, %.3f ms past target",
@@ -164,21 +164,21 @@ static uint64_t r_presents_queued, r_presents_done, r_submit_done, game_frames;
 static ReplayItem r_cur;   // the item the replay thread runs while r_busy (its programs for vk_be_program_release)
 // Under rl: calls, calls that waited and the time waited per cause, since the last replay_log line and over the run.
 static uint64_t dr_calls[DR_N], dr_waits[DR_N], dr_ns[DR_N], dr_tcalls[DR_N], dr_twaits[DR_N], dr_tns[DR_N];
-// XC2_REPLAY_CHECK: ReadTexels compared with a read after a full drain (under rl): checked, differing, differing
+// HAYA_REPLAY_CHECK: ReadTexels compared with a read after a full drain (under rl): checked, differing, differing
 // although no submission recorded a write to the texture in between, differing with the queue idle at the first read.
 static uint64_t ck_reads, ck_diff, ck_diff_unexplained, ck_diff_idle;
 
 // On by default where every buffer the GPU reads is a submit-time copy (vk_mem_snapshots: the VRAM mirrors with staged
 // captures): Goldmouth on an RTX 4070 Laptop, 75 fps on the submitting thread, 99 on the replay thread. Elsewhere the
 // frame guard waits for the GPU each frame, and the replay thread only adds latency (63 fps there with the guard), so
-// it stays off unless XC2_REPLAY_ASYNC is set.
+// it stays off unless HAYA_REPLAY_ASYNC is set.
 int vk_replay_async(void) {
     static int on = -1;
     if (on < 0) {
         vk_sync_start();   // the memory mode is chosen with the device
-        int set = cfg_is_set("XC2_REPLAY_ASYNC"), snap = vk_mem_snapshots();
-        on = set ? cfg_bool("XC2_REPLAY_ASYNC") : snap;
-        rt_log("vk: replay %s (XC2_REPLAY_ASYNC=%d%s)",
+        int set = cfg_is_set("HAYA_REPLAY_ASYNC"), snap = vk_mem_snapshots();
+        on = set ? cfg_bool("HAYA_REPLAY_ASYNC") : snap;
+        rt_log("vk: replay %s (HAYA_REPLAY_ASYNC=%d%s)",
                on ? "on its own thread, at most one frame behind the game" : "on the submitting thread", on,
                set ? "" : snap ? ", auto: submit-time copies" : ", auto: the GPU reads guest memory live");
     }
@@ -448,14 +448,14 @@ static void vk_be_program_release(const prog_t *p) {
 }
 // A submission's submit-time captures (its uniform arenas, the mirror staging) live until its fence completes, and
 // a GPU that falls behind lets them pile up: a paused game kept submitting while the menu was open, and issue 27
-// held 888 MiB in 222 arenas that way. Past XC2_FLIGHT_MAX values queued or in flight (a value per submission and per
+// held 888 MiB in 222 arenas that way. Past HAYA_FLIGHT_MAX values queued or in flight (a value per submission and per
 // present) the submitting thread waits for the oldest, which bounds the backlog without the per-frame GPU wait the
 // frame guard would add in the steady state. 0 turns it off.
 #define FLIGHT_MAX_DEFAULT 6   // values: a frame queues one submit and one present, so this is about three frames
 static void flight_bound(void) {
     static int max = -1;
     if (max < 0) {
-        const char *e = cfg_get("XC2_FLIGHT_MAX");
+        const char *e = cfg_get("HAYA_FLIGHT_MAX");
         max = e && *e ? atoi(e) : FLIGHT_MAX_DEFAULT;
     }
     if (max <= 0) return;
@@ -503,9 +503,9 @@ static void vk_be_finish(void) { vk_sync_start(); replay_drain(DR_FINISH); vk_pr
 static int replay_check(void) {
     static int on = -1;
     if (on < 0) {
-        const char *e = cfg_get("XC2_REPLAY_CHECK");
+        const char *e = cfg_get("HAYA_REPLAY_CHECK");
         on = e && strcmp(e, "0");
-        if (on) rt_log("vk: XC2_REPLAY_CHECK: every ReadTexels is read again after a full replay drain and compared");
+        if (on) rt_log("vk: HAYA_REPLAY_CHECK: every ReadTexels is read again after a full replay drain and compared");
     }
     return on;
 }
@@ -514,7 +514,7 @@ static int replay_check(void) {
 // completed), not for the whole queue. The readback copy goes through the upload batch on the same queue, after every
 // submission the replay has submitted. Submissions still queued or being recorded run after the copy, as on hardware
 // when the GPU has not reached them yet: the game only sees their texels after waiting on a sync, and every sync
-// value covers replay and GPU, so a read the game synchronised sees them. XC2_REPLAY_CHECK compares with a full drain.
+// value covers replay and GPU, so a read the game synchronised sees them. HAYA_REPLAY_CHECK compares with a full drain.
 static void vk_be_read_texels(const tex_t *t, const view_t *v, const NVNcopyRegion *r, uint8_t *dst, uint64_t row,
                               uint64_t img) {
     vk_sync_start();

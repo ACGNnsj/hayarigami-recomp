@@ -1,5 +1,5 @@
 export PATH=/c/msys64/ucrt64/bin:$PATH
-export XC2_ROMFS=D:/consoles/ns/hayarigami-recomp/build/extracted/v0/romfs XC2_INPUT_FORCE=1
+export HAYA_ROMFS=D:/consoles/ns/hayarigami-recomp/build/extracted/v0/romfs HAYA_INPUT_FORCE=1
 rm -f build/v0/run.log build/v0/run.err build/v0/av3_taps.log
 ./build/v0/haya.exe --seconds 640 --shot build/v0/av3_shot.png > build/v0/run.log 2> build/v0/run.err & HPID=$!
 echo $HPID > build/v0/av3.pid

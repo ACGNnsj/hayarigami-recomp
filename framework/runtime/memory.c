@@ -214,12 +214,12 @@ static void protect(uint64_t a, uint64_t n, int prot, const char *what) {
 // The process is re-run when a region is taken: Windows places DLLs, heaps and thread stacks at random addresses,
 // and a fresh process gets a fresh layout.
 static void reexec_or_fail(const char *what) {
-    const char *e = cfg_get("XC2_REEXEC");
+    const char *e = cfg_get("HAYA_REEXEC");
     int n = e ? atoi(e) : 0;
     if (n >= REEXEC_LIMIT) rt_fatal("memory: %s is not free after %d attempts", what, n);
     char buf[16];
     snprintf(buf, sizeof buf, "%d", n + 1);
-    plat_setenv("XC2_REEXEC", buf);
+    plat_setenv("HAYA_REEXEC", buf);
     plat_reexec();
 }
 
@@ -246,10 +246,10 @@ void mem_init(void) {
     plat_mem_fault_hook(thaw_fault);   // before the crash handler
     alias_pages = calloc(ALIAS_PAGES, 1);
     if (!alias_pages) rt_fatal("memory: cannot allocate the alias page map");
-    // xc2.ini is read here, once the address space is claimed and before the first setting: the pool size below
-    // depends on XC2_APP_POOL and on the resolution settings (resolution.c decides them once, on this first call).
+    // haya.ini is read here, once the address space is claimed and before the first setting: the pool size below
+    // depends on HAYA_APP_POOL and on the resolution settings (resolution.c decides them once, on this first call).
     cfg_init();
-    const char *pool = cfg_get("XC2_APP_POOL");
+    const char *pool = cfg_get("HAYA_APP_POOL");
     L = (RtGuestLayout){
         .aslr = {low, RT_ADDRESS_LIMIT - low},
         .stack = {low + STACK_OFF, STACK_SIZE},
@@ -259,7 +259,7 @@ void mem_init(void) {
         .hostfn = {RT_HOSTFN_BASE, RT_HOSTFN_SIZE},
         .pool = pool ? strtoull(pool, NULL, 0) : DEFAULT_POOL + res_heap_extra_bytes(),   // resolution.c
     };
-    if (!L.pool) rt_fatal("memory: XC2_APP_POOL is 0");
+    if (!L.pool) rt_fatal("memory: HAYA_APP_POOL is 0");
 }
 
 const RtGuestLayout *mem_layout(void) { return &L; }

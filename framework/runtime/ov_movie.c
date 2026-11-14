@@ -24,7 +24,7 @@
 // decoded frames are handed over when their presentation time is due, counted from the first frame (movie_tick, at every
 // present on the presenting guest thread), at most one per present. When the game falls behind, a frame more than 1.5
 // periods late is dropped if the next one is due too, so the picture keeps time with the movie's sound.
-// XC2_MOVIE_PACE=0 hands every decoded frame over at the next present; XC2_MOVIE_HOST=0 leaves every decoder to the
+// HAYA_MOVIE_PACE=0 hands every decoded frame over at the next present; HAYA_MOVIE_HOST=0 leaves every decoder to the
 // library (which aborts at the first movie).
 #include <emmintrin.h>
 #include <stdint.h>
@@ -127,18 +127,18 @@ void movie_set_clock(uint64_t (*clock)(void)) { g_clock = clock ? clock : kern_n
 void movie_set_pace(int on) { g_pace = on; }
 static int pace_on(void) {
     if (g_pace < 0) {
-        const char *e = cfg_get("XC2_MOVIE_PACE");
+        const char *e = cfg_get("HAYA_MOVIE_PACE");
         g_pace = !(e && !strcmp(e, "0"));
     }
     return g_pace;
 }
-// XC2_MOVIE_STUB (default 1): a decoder the host cannot run (AAC audio and the like) consumes its input and reports end of
+// HAYA_MOVIE_STUB (default 1): a decoder the host cannot run (AAC audio and the like) consumes its input and reports end of
 // stream at once instead of calling the library, whose nn::codec hardware path the host has not implemented and which
 // aborts. The movie is skipped; the game continues. 0 leaves such decoders to the library.
 static int stub_on(void) {
     static int v = -1;
     if (v < 0) {
-        const char *e = cfg_get("XC2_MOVIE_STUB");
+        const char *e = cfg_get("HAYA_MOVIE_STUB");
         v = !(e && !strcmp(e, "0"));
     }
     return v;
@@ -146,7 +146,7 @@ static int stub_on(void) {
 static int host_off(void) {
     static int v = -1;
     if (v < 0) {
-        const char *e = cfg_get("XC2_MOVIE_HOST");
+        const char *e = cfg_get("HAYA_MOVIE_HOST");
         v = e && !strcmp(e, "0");
     }
     return v;
@@ -1199,7 +1199,7 @@ static void ov_ctor(Cpu *c) {
     int stub = !host && stub_on();
     if ((!host && !stub) || host_off()) {
         rt_log("movie: decoder type %d format %d left to the library%s", type, format,
-               host_off() ? " (XC2_MOVIE_HOST=0)" : " (only VP9 runs on the host)");
+               host_off() ? " (HAYA_MOVIE_HOST=0)" : " (only VP9 runs on the host)");
         pass(c, MOVIE_CTOR);
         return;
     }
@@ -1529,9 +1529,9 @@ static void ov_send_input(Cpu *c) {
     if (m->stub) {   // no worker: the buffer is free again at once
         Signals s = {0};
         plat_mutex_lock(&m->mu);
-        {   // XC2_MOVIE_DUMP: log the first packets' heads (framing recon: Annex B vs avcC, ADTS vs LATM)
+        {   // HAYA_MOVIE_DUMP: log the first packets' heads (framing recon: Annex B vs avcC, ADTS vs LATM)
             static int dump_init = 0, dump_on = 0;
-            if (!dump_init) { dump_on = cfg_get("XC2_MOVIE_DUMP") != NULL; dump_init = 1; }
+            if (!dump_init) { dump_on = cfg_get("HAYA_MOVIE_DUMP") != NULL; dump_init = 1; }
             if (dump_on && m->stub_fed < 4 && size >= 8 && index >= 0 && index < IN_BUFS && m->in[index]) {
                 const uint8_t *b = m->in[index] + offset;
                 rt_log("movie: dump pkt%d size=%d time=%lld flags=%u: %02x %02x %02x %02x %02x %02x %02x %02x",
@@ -1557,9 +1557,9 @@ static void ov_send_input(Cpu *c) {
     }
     Signals s = {0};
     plat_mutex_lock(&m->mu);
-    {   // XC2_MOVIE_DUMP: AAC framing recon (log every input incl. size-0)
+    {   // HAYA_MOVIE_DUMP: AAC framing recon (log every input incl. size-0)
         static int dump_init2 = 0, dump_on2 = 0;
-        if (!dump_init2) { dump_on2 = cfg_get("XC2_MOVIE_DUMP") != NULL; dump_init2 = 1; }
+        if (!dump_init2) { dump_on2 = cfg_get("HAYA_MOVIE_DUMP") != NULL; dump_init2 = 1; }
         if (dump_on2 && m->mf_is_aac && m->aac_dump_n < 6 && index >= 0 && index < IN_BUFS && m->in[index]) {
             const uint8_t *b = m->in[index] + offset;
             if (size >= 8) rt_log("movie: AAC in#%d size=%d time=%lld flags=%u: %02x %02x %02x %02x %02x %02x %02x %02x",

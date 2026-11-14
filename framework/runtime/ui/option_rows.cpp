@@ -254,14 +254,14 @@ void opt_text_str(const char *text, bool warn) {
     ImGui::PopTextWrapPos();
 }
 
-// ---- writing a setting: at once in memory (live settings follow), to xc2.ini a moment later (opt_save_tick)
+// ---- writing a setting: at once in memory (live settings follow), to haya.ini a moment later (opt_save_tick)
 static uint64_t g_save_at;   // plat_now_ns deadline of the pending write; 0 none
 static bool g_save_logged;
 
 static void apply(const char *key, const char *value) {
     if (*value) {
         cfg_set(key, value);
-    } else {   // the automatic choice: the key unset, its line removed from xc2.ini
+    } else {   // the automatic choice: the key unset, its line removed from haya.ini
         const char *k = key;
         cfg_reset(&k, 1);
     }
@@ -275,7 +275,7 @@ int opt_save_tick(int force) {
     g_save_at = 0;
     if (!cfg_save() && !g_save_logged) {
         g_save_logged = true;
-        rt_log("menu: could not write xc2.ini; the changed settings hold for this session");
+        rt_log("menu: could not write haya.ini; the changed settings hold for this session");
     }
     return 0;
 }

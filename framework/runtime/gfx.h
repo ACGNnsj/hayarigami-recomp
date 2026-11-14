@@ -56,7 +56,7 @@ uint32_t gfx_shader_xfb(const uint8_t *control, uint8_t words[GFX_XFB_WORDS]);
 // The shader census the probes and the pipeline self-test read, under the repository root (tools/shader_census.py
 // --version v301): jobs.json and code/<key>.code.
 #define GFX_CENSUS_DIR "build/v301/shaders"
-void gfx_shader_counts(uint64_t *keys, uint64_t *translated);   // distinct keys in memory, translations done (XC2_TRACE=perf)
+void gfx_shader_counts(uint64_t *keys, uint64_t *translated);   // distinct keys in memory, translations done (HAYA_TRACE=perf)
 // Translator answers for this device (vk_caps.c): shaderFloat64, storage offset rounding, subgroup size per vs/fs/cs.
 void gfx_shader_set_host(int float64, uint32_t sbuf_align, const uint32_t subgroup[3], uint32_t gather_bits);
 const uint8_t *gfx_shader_key(const GfxShader *s);          // the 32-byte cache key (stable while the translator is)
@@ -70,9 +70,9 @@ void gfx_shader_prewarm(const uint8_t (*iids)[32], size_t n, const GfxShader **o
 // to shader-answers.bin, and its program to shader-programs.bin, in the directory of `keys_path` (pipeline-keys.bin).
 void gfx_shader_record_at(const char *keys_path);
 void gfx_shader_record_flush(int force);                   // appends pending records; without force at most every 2 s
-// Translates every recorded (program, answers) on `threads` threads with up to `procs` translators (XC2_TEST_PREPARE_SHADERS).
+// Translates every recorded (program, answers) on `threads` threads with up to `procs` translators (HAYA_TEST_PREPARE_SHADERS).
 void gfx_shader_prepare_recorded(int threads, int procs);
-// xc2.exe --prepare-shaders: translates <dir>/seed-answers.bin + seed-programs.bin (tools/prepare_shaders.py) and
+// haya.exe --prepare-shaders: translates <dir>/seed-answers.bin + seed-programs.bin (tools/prepare_shaders.py) and
 // writes <dir>/shader-prepared.bin (stage, priority, input id per variant). 0 on success.
 int gfx_shader_prepare_seed(const char *dir, int threads, int procs);
 typedef struct { uint8_t iid[32]; uint8_t stage, prio; } GfxWarmEnt;   // prio 0: met in play; 1..3: prepared
@@ -131,7 +131,7 @@ typedef struct {
     void (*cpu_synced)(uint64_t fence);
 } GfxBackend;
 extern const GfxBackend gfx_null_backend, gfx_vulkan_backend;
-const GfxBackend *gfx_backend(void);                       // XC2_GPU=null|vulkan (default vulkan)
+const GfxBackend *gfx_backend(void);                       // HAYA_GPU=null|vulkan (default vulkan)
 
 // ---- NVN front end (nvn_procs.c)
 void nvn_procs_register(void);                             // hostfn_register every proc; before hostfn_seal (ov_gfx.c)

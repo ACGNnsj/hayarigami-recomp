@@ -1,6 +1,6 @@
 // AMD FidelityFX Super Resolution 1 on the present path (gfx_present.c present_image): when the window is larger than
 // the game's output, EASU scales the game's crop rectangle to the swapchain size and RCAS sharpens it, in place of the
-// bilinear vkCmdBlitImage. XC2_UPSCALER=fsr|bilinear picks it, XC2_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS;
+// bilinear vkCmdBlitImage. HAYA_UPSCALER=fsr|bilinear picks it, HAYA_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS;
 // both apply at the next frame.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
@@ -162,14 +162,14 @@ static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageV
 int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
                   VkImage dst, int dx, int dy, uint32_t dw, uint32_t dh) {
     int cw = crop[2], ch = crop[3];
-    int is_fsr = !strcmp(cfg_value("XC2_UPSCALER"), "fsr");
-    int is_dlss = !strcmp(cfg_value("XC2_UPSCALER"), "dlss") && vk_dlss_available();
+    int is_fsr = !strcmp(cfg_value("HAYA_UPSCALER"), "fsr");
+    int is_dlss = !strcmp(cfg_value("HAYA_UPSCALER"), "dlss") && vk_dlss_available();
     if ((!is_fsr && !is_dlss) || (!is_dlss && dw <= (uint32_t)cw && dh <= (uint32_t)ch) || !fmt) {
         static int nq = 0;
         if (++nq % 600 == 1)
             rt_log("vk: DLSS probe: record early-out (is_fsr=%d is_dlss=%d fmt=%u upscaler=%s mode=%s g=%s)",
-                   is_fsr, is_dlss, fmt, cfg_value("XC2_UPSCALER"), cfg_value("XC2_DLSS_MODE"),
-                   cfg_value("XC2_DLSS_G"));
+                   is_fsr, is_dlss, fmt, cfg_value("HAYA_UPSCALER"), cfg_value("HAYA_DLSS_MODE"),
+                   cfg_value("HAYA_DLSS_G"));
         return 0;
     }
     VkCtx *c = vk_ctx();
@@ -193,9 +193,9 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         static int n = 0;
         if (++n % 60 == 1)
             rt_log("vk: DLSS gate census %d: upscaler=%s avail=%d dlaa=%d fmt=%u %dx%d->%ux%u", n,
-                   cfg_value("XC2_UPSCALER"), vk_dlss_available(), vk_dlss_dlaa(), fmt, cw, ch, dw, dh);
+                   cfg_value("HAYA_UPSCALER"), vk_dlss_available(), vk_dlss_dlaa(), fmt, cw, ch, dw, dh);
     }
-    if (!strcmp(cfg_value("XC2_UPSCALER"), "dlss") && vk_dlss_available() &&
+    if (!strcmp(cfg_value("HAYA_UPSCALER"), "dlss") && vk_dlss_available() &&
         ((dw > (uint32_t)cw || dh > (uint32_t)ch) || vk_dlss_dlaa()) && fmt) {
         VkImage sdepth = VK_NULL_HANDLE, smvec = VK_NULL_HANDLE, sout = VK_NULL_HANDLE;
         VkImageView sdepth_view = VK_NULL_HANDLE, smvec_view = VK_NULL_HANDLE, sout_view = VK_NULL_HANDLE;
@@ -230,7 +230,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         }
         return 0;
     }
-    int sharp = cfg_int("XC2_SHARPNESS");
+    int sharp = cfg_int("HAYA_SHARPNESS");
     if (sharp < 0) sharp = 0;
     if (sharp > 100) sharp = 100;
     if (!F.logged) {

@@ -6,14 +6,14 @@
 // {docked width, height, handheld width, height}, shipped {1920, 1080, 1280, 720}. Its users (main+0x971a30,
 // +0x9ca190, +0xa478d8) take the frame size and the aspect ratio from it, so a wider table widens the 3D view as well.
 // The mods rewrite the table; res_init writes it once the modules are loaded, before the game runs: the docked size is
-// XC2_OUTPUT_RES = <w>x<h> (default 1920x1080), the handheld size half of it.
+// HAYA_OUTPUT_RES = <w>x<h> (default 1920x1080), the handheld size half of it.
 //
 // One more site reads the table: main+0x9ccce0 sizes two buffers from a width it loads (main+0x9cccec) and the table's
 // docked height (main+0x9ccd00). The mods replace both loads with sizes of their own that differ per mod (1280x720 at
 // 3840x2160, 1920x1080 at 2560x1440, none at 5160x2160). The patch set "resbuf" (recomp/patches-upd.txt) loads them
-// from the patch page's +0x50 and +0x54 instead: XC2_RES_BUFFER = <w>x<h> switches it on, unset keeps the game's.
+// from the patch page's +0x50 and +0x54 instead: HAYA_RES_BUFFER = <w>x<h> switches it on, unset keeps the game's.
 //
-// XC2_RENDER_SCALE sets the share of the game resolution the 3D scene draws in. The game picks that share itself by
+// HAYA_RENDER_SCALE sets the share of the game resolution the 3D scene draws in. The game picks that share itself by
 // dynamic resolution (at 100 % in every run so far, even at 19 fps), only inside its full-size render targets, so a scale
 // above 100 would draw outside them: the patch sets "scene" and "scenefull" (recomp/patches-upd.txt) replace the game's
 // share with a fixed smaller or a whole one, and a higher value counts as 100. "game" keeps the dynamic one. Supersampling
@@ -30,15 +30,15 @@
 
 #define BASE_W 1920
 #define BASE_H 1080
-#define XC2_W 1280
-#define XC2_H 720
+#define HAYA_W 1280
+#define HAYA_H 720
 #define TABLE (RT_MAIN_BASE + 0x17fe914)
 
 static struct {
     int decided;
     unsigned ow, oh;   // output (docked)
     int on;            // res_init wrote the table
-    int scale;         // XC2_RENDER_SCALE in percent, 0 for the game's own
+    int scale;         // HAYA_RENDER_SCALE in percent, 0 for the game's own
     int xc2;           // XC2's patch sets (xc2_res_init): ow x oh is the size it composes, on or not
 } R;
 
@@ -52,24 +52,24 @@ static void decide(void) {
     R.decided = 1;
     R.ow = BASE_W;
     R.oh = BASE_H;
-    const char *o = cfg_value("XC2_OUTPUT_RES");
+    const char *o = cfg_value("HAYA_OUTPUT_RES");
     unsigned w, h;
     if (parse(o, &w, &h)) {
         R.ow = w & ~1u;
         R.oh = h & ~1u;
     } else {
-        rt_log("resolution: XC2_OUTPUT_RES=%s is not <width>x<height> in 640x360..7680x4320; 1920x1080", o);
+        rt_log("resolution: HAYA_OUTPUT_RES=%s is not <width>x<height> in 640x360..7680x4320; 1920x1080", o);
     }
-    const char *s = cfg_value("XC2_RENDER_SCALE");
+    const char *s = cfg_value("HAYA_RENDER_SCALE");
     int pct = s ? atoi(s) : 0;
     if (pct >= 25) {
         R.scale = pct > 100 ? 100 : pct;
     } else if (s && strcmp(s, "game")) {
-        rt_log("resolution: XC2_RENDER_SCALE=%s is not game or a percentage from 25; the game's own", s);
+        rt_log("resolution: HAYA_RENDER_SCALE=%s is not game or a percentage from 25; the game's own", s);
     }
 }
 
-// Switches the game's scene scale for XC2_RENDER_SCALE; unset keeps the game's.
+// Switches the game's scene scale for HAYA_RENDER_SCALE; unset keeps the game's.
 static void scene_scale(void) {
     int part = rt_patch_set("scene"), full = rt_patch_set("scenefull");
     uint8_t *page = rt_patch_page();
@@ -93,14 +93,14 @@ static void scene_scale(void) {
 // 232 MiB per 1280x720 of extra area, in 2 MiB steps. The game sums its memory layout (main+0x6421b4, 0xbbc00000
 // bytes) in 32 bits, so the growth stops at 1080 MiB: a larger size is scaled down to the largest that fits, at the
 // same shape (about 2920x1642 at 16:9).
-#define XC2_PIXEL_HEAP 0x16a00000ull
-#define XC2_GFX_BLOCK 0x20000000ull
-#define XC2_MIB_PER_AREA 232.0
-#define XC2_EXTRA_MAX_MIB 1080.0
+#define HAYA_PIXEL_HEAP 0x16a00000ull
+#define HAYA_GFX_BLOCK 0x20000000ull
+#define HAYA_MIB_PER_AREA 232.0
+#define HAYA_EXTRA_MAX_MIB 1080.0
 
 static struct {
     int decided;       // 1: an XC2 build (the set xc2res exists), -1: not
-    unsigned w, h;     // XC2_OUTPUT_RES
+    unsigned w, h;     // HAYA_OUTPUT_RES
     uint64_t extra;    // bytes added to each of the three
 } X;
 
@@ -108,18 +108,18 @@ static int xc2_decide(void) {
     if (X.decided) return X.decided > 0;
     X.decided = rt_patch_set("xc2res") >= 0 ? 1 : -1;
     if (X.decided < 0) return 0;
-    const char *o = cfg_value("XC2_OUTPUT_RES");
-    unsigned w = XC2_W, h = XC2_H;
-    if (!parse(o, &w, &h)) rt_log("resolution: XC2_OUTPUT_RES=%s is not <width>x<height> in 640x360..7680x4320; %ux%u", o, XC2_W, XC2_H);
-    double area = (double)w * h / (XC2_W * XC2_H), most = 1 + XC2_EXTRA_MAX_MIB / XC2_MIB_PER_AREA;
+    const char *o = cfg_value("HAYA_OUTPUT_RES");
+    unsigned w = HAYA_W, h = HAYA_H;
+    if (!parse(o, &w, &h)) rt_log("resolution: HAYA_OUTPUT_RES=%s is not <width>x<height> in 640x360..7680x4320; %ux%u", o, HAYA_W, HAYA_H);
+    double area = (double)w * h / (HAYA_W * HAYA_H), most = 1 + HAYA_EXTRA_MAX_MIB / HAYA_MIB_PER_AREA;
     if (area > most) {
         double k = sqrt(most / area);
         unsigned fw = (unsigned)(w * k), fh = (unsigned)(h * k);
         rt_log("resolution: %ux%u needs more graphics memory than XC2 can address; %ux%u", w, h, fw & ~1u, fh & ~1u);
-        w = fw, h = fh, area = (double)(w & ~1u) * (h & ~1u) / (XC2_W * XC2_H);
+        w = fw, h = fh, area = (double)(w & ~1u) * (h & ~1u) / (HAYA_W * HAYA_H);
     }
     X.w = w & ~1u, X.h = h & ~1u;
-    double mib = (area - 1) * XC2_MIB_PER_AREA;
+    double mib = (area - 1) * HAYA_MIB_PER_AREA;
     X.extra = mib > 0 ? ((uint64_t)mib + 2) & ~1ull : 0;
     X.extra <<= 20;
     return 1;
@@ -143,17 +143,17 @@ static int xc2_res_init(void) {
     R.ow = X.w, R.oh = X.h;
     // +0x80: the camera viewport the markers are placed with (patches-v301.txt), 1280x720 at 16:9; the camera takes its
     // aspect ratio from it, so another shape keeps the height and widens or narrows
-    uint32_t ui_w = (uint32_t)((double)XC2_H * X.w / X.h + 0.5);
-    uint32_t v[6] = {X.w, X.h, (uint32_t)(XC2_PIXEL_HEAP + X.extra), (uint32_t)(XC2_GFX_BLOCK + X.extra), ui_w, XC2_H};
+    uint32_t ui_w = (uint32_t)((double)HAYA_H * X.w / X.h + 0.5);
+    uint32_t v[6] = {X.w, X.h, (uint32_t)(HAYA_PIXEL_HEAP + X.extra), (uint32_t)(HAYA_GFX_BLOCK + X.extra), ui_w, HAYA_H};
     memcpy(page + 0x70, v, sizeof v);
-    float pivot = (float)XC2_H / X.h;   // +0x88: rotated interface panes' pivot back in interface units
+    float pivot = (float)HAYA_H / X.h;   // +0x88: rotated interface panes' pivot back in interface units
     memcpy(page + 0x88, &pivot, sizeof pivot);
     R.xc2 = 1;
-    R.on = X.w != XC2_W || X.h != XC2_H;
+    R.on = X.w != HAYA_W || X.h != HAYA_H;
     rt_patch_switch(set, R.on);
     if (R.on) rt_log("resolution: %ux%u, graphics heaps %llu MiB larger", X.w, X.h, (unsigned long long)(X.extra >> 20));
     else rt_log("resolution: the game's own (%ux%u)", X.w, X.h);
-    // XC2_RENDER_SCALE: the set xc2scale fixes lib_nx.ini's scene shares (dynamic 70 to 100 %) at the page's +0x58
+    // HAYA_RENDER_SCALE: the set xc2scale fixes lib_nx.ini's scene shares (dynamic 70 to 100 %) at the page's +0x58
     int scale = rt_patch_set("xc2scale");
     if (scale < 0) {
         if (R.scale) rt_log("resolution: this build has no 3D render scale; the game's own");
@@ -180,7 +180,7 @@ void res_init(void) {
     int resbuf = rt_patch_set("resbuf");
     uint8_t *page = rt_patch_page();
     // patches.c switched the set on for any value but 0; only a size keeps it on.
-    if (resbuf >= 0 && page && parse(cfg_get("XC2_RES_BUFFER"), &bw, &bh)) {
+    if (resbuf >= 0 && page && parse(cfg_get("HAYA_RES_BUFFER"), &bw, &bh)) {
         uint32_t v[2] = {bw, bh};
         memcpy(page + 0x50, v, sizeof v);
         rt_patch_switch(resbuf, 1);

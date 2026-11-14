@@ -268,7 +268,7 @@ NVN_API(nvnTextureInitialize) {
     }
     o->serial = nvn_new_serial();
     live_put(o);
-    if (rt_trace & RT_TRACE_GFX) {   // with the game's return addresses, as XC2_DRAW_CALLERS walks them
+    if (rt_trace & RT_TRACE_GFX) {   // with the game's return addresses, as HAYA_DRAW_CALLERS walks them
         char who[160];
         int n = snprintf(who, sizeof who, " %#llx", (unsigned long long)c->x[30]);
         uint64_t fp = c->x[29];
@@ -707,7 +707,7 @@ NVN_API(nvnWindowSetCrop) {
 // ---------- Present pacing
 // The vsync thread ticks at a fixed 60 Hz whatever the monitor does, so one game frame lasts `interval` ticks. With
 // the real-time frame step (frame_rate.c) game speed does not depend on the interval, so a frame is shown when it is
-// ready, at most at the frame limit (XC2_FPS_LIMIT: 30 to 360 per second or the monitor's rate): holding it to the
+// ready, at most at the frame limit (HAYA_FPS_LIMIT: 30 to 360 per second or the monitor's rate): holding it to the
 // 2nd or 3rd tick would only add latency and 50 ms frames.
 #define VSYNC_HZ 60ull
 static uint64_t frame_fence;   // the newest submit at the last present (the frame guard)
@@ -758,14 +758,14 @@ NVN_API(nvnWindowAcquireTexture) {
     // it runs (vk_usnap.c copies only uniform blocks). XC2 rewrites that data for its next frame with no fence, so above
     // 30 fps, when its limiter no longer idles the rest of a 1/30 s frame, late draws read the next frame's data:
     // props slid against the ground and flickered when the camera moved or shook. Waiting at every submit
-    // (XC2_SUBMIT_WAIT) cost 20-25 % on Iris Xe; this wait keeps the overlap of the GPU with the rest of the frame.
-    // XC2_FRAME_GUARD: auto (default) waits only while the GPU can read live pool memory, i.e. unless the VRAM mirrors
+    // (HAYA_SUBMIT_WAIT) cost 20-25 % on Iris Xe; this wait keeps the overlap of the GPU with the rest of the frame.
+    // HAYA_FRAME_GUARD: auto (default) waits only while the GPU can read live pool memory, i.e. unless the VRAM mirrors
     // take the CPU's bytes in the submit call (vk_memory.c vk_mem_capture, nvn_reads_snapshot): then the replay and the
     // GPU may run up to a frame behind, as the GPU does on the Switch. 1 always waits, 0 never.
     {
         static int mode = -1;   // 0 off, 1 on, 2 auto
         if (mode < 0) {
-            const char *e = cfg_value("XC2_FRAME_GUARD");
+            const char *e = cfg_value("HAYA_FRAME_GUARD");
             mode = !strcmp(e, "auto") ? 2 : strcmp(e, "0") != 0;
             rt_log("nvn: frame guard %s", mode == 2 ? "auto (off while every buffer read is a submit-time copy)"
                                          : mode ? "on" : "off");

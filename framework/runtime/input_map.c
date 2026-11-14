@@ -1,4 +1,4 @@
-// Binding tables (keyboard/mouse and gamepad), their xc2.ini overrides, the pure mapping functions and the Buttons
+// Binding tables (keyboard/mouse and gamepad), their haya.ini overrides, the pure mapping functions and the Buttons
 // tab's edits (input_map.h). No Win32 or SDL here.
 #include <ctype.h>
 #include <math.h>
@@ -15,10 +15,10 @@
 
 #define DEFAULT_KEYS \
     {KEY_W, B_SL_UP}, {KEY_A, B_SL_LEFT}, {KEY_S, B_SL_DOWN}, {KEY_D, B_SL_RIGHT},                  /* move */ \
-    {KEY_UP, B_SR_UP}, {KEY_LEFT, B_SR_LEFT}, {KEY_DOWN, B_SR_DOWN}, {KEY_RIGHT, B_SR_RIGHT},       /* camera, second source */ \
+    {KEY_UP, B_UP}, {KEY_LEFT, B_LEFT}, {KEY_DOWN, B_DOWN}, {KEY_RIGHT, B_RIGHT},       /* menus: arrows drive the dpad */ \
     {KEY_MOUSE_L, B_Y}, {KEY_MOUSE_R, B_ZL}, {KEY_Z, B_ZL}, {KEY_F, B_ZR}, {KEY_X, B_ZR}, \
-    {KEY_SPACE, B_X}, {KEY_LSHIFT, B_B}, {KEY_E, B_A}, {KEY_Q, B_L}, {KEY_R, B_R}, \
-    {KEY_LCTRL, B_STICK_L}, {KEY_C, B_STICK_R}, \
+    {KEY_SPACE, B_A}, {KEY_ENTER, B_A}, {KEY_E, B_A}, {KEY_Q, B_L}, {KEY_R, B_R},                    /* VN: Space/Enter/E confirm */ \
+    {KEY_LSHIFT, B_B}, {KEY_BACKSPACE, B_B}, {KEY_LCTRL, B_STICK_L}, {KEY_C, B_STICK_R},            /* Backspace/Shift cancel (Esc is reserved by the menu) */ \
     {KEY_1, B_LEFT}, {KEY_2, B_UP}, {KEY_3, B_RIGHT}, {KEY_4, B_DOWN}, \
     {KEY_TAB, B_PLUS}, {KEY_M, B_MINUS}
 
@@ -31,7 +31,7 @@
     {PAD_ZR, B_ZR}
 #define NINTENDO_PADS DEFAULT_PADS(B_B, B_A, B_Y, B_X)
 #define XBOX_PADS DEFAULT_PADS(B_A, B_B, B_X, B_Y)
-enum { DEFAULT_KEY_COUNT = 26, DEFAULT_PAD_COUNT = 16 };
+enum { DEFAULT_KEY_COUNT = 28, DEFAULT_PAD_COUNT = 16 };
 _Static_assert(sizeof (Binding[]){DEFAULT_KEYS} / sizeof (Binding) == DEFAULT_KEY_COUNT, "DEFAULT_KEY_COUNT");
 
 static const InputMap defaults = {{DEFAULT_KEYS}, DEFAULT_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},
@@ -168,7 +168,7 @@ void input_map_configure(void) {
     input_map_reset();
     for (int a = 0; a < ACTION_COUNT; a++) {
         char var[32];
-        snprintf(var, sizeof var, "XC2_BIND_%s", action_names[a]);
+        snprintf(var, sizeof var, "HAYA_BIND_%s", action_names[a]);
         const char *v = cfg_get(var);
         if (v && *v && input_map_bind(action_names[a], v)) rt_log("input: %s = %s", var + 5, v);
     }
@@ -336,8 +336,8 @@ void input_pad_stick(int32_t x, int32_t y, float dead, int32_t out[2]) {
 }
 
 float input_pad_deadzone(int stick) {
-    const char *own = stick ? "XC2_RSTICK_DEADZONE" : "XC2_LSTICK_DEADZONE", *set = cfg_get(own);
-    double v = cfg_double(set && *set ? own : "XC2_STICK_DEADZONE");
+    const char *own = stick ? "HAYA_RSTICK_DEADZONE" : "HAYA_LSTICK_DEADZONE", *set = cfg_get(own);
+    double v = cfg_double(set && *set ? own : "HAYA_STICK_DEADZONE");
     return (float)(v < 0 ? 0 : v > 50 ? 50 : v) / 100.f;
 }
 

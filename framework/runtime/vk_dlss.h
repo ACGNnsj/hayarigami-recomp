@@ -3,7 +3,7 @@
 // at the render size, the jitter in pixels), same output image, same blit to the stretch target. Steps 1-2 (the
 // resolve/stretch detection, depth/motion prep, image management) stay FSR3's; this file only talks to SL.
 //
-// XC2_UPSCALER=dlss selects it, XC2_DLSS_MODE the DLSS mode (off|dlaa|quality|balanced|performance|ultraperformance).
+// HAYA_UPSCALER=dlss selects it, HAYA_DLSS_MODE the DLSS mode (off|dlaa|quality|balanced|performance|ultraperformance).
 // Without sl.interposer.dll next to the executable (staged by tools/build_game.py copy_dlss) or on a non-NVIDIA GPU
 // vk_dlss_available stays 0 and the FSR path runs. Phase 2 (frame generation) and Phase 3 (neural rendering) build on
 // this file's loader and init.
@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 // Before vkCreateInstance (vk_device.c create_instance): loads sl.interposer.dll and runs slInit, so the feature
-// requirements below are known. A no-op unless XC2_UPSCALER=dlss.
+// requirements below are known. A no-op unless HAYA_UPSCALER=dlss.
 void vk_dlss_early(void);
 // Append the instance / device extension names SL requires to out (room for cap); returns how many were written.
 // Valid from vk_dlss_early until vk_dlss_release.
@@ -27,12 +27,12 @@ int vk_dlss_device_ext(const char **out, int cap);
 int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, unsigned comp_family);
 // 1 when a dispatch may run: the library loaded, the device bound, the adapter supports DLSS, and the mode is not off.
 int vk_dlss_available(void);
-int vk_dlss_dlaa(void); // available and XC2_DLSS_MODE=dlaa: run at native resolution
-// Phase 2: 1 when XC2_DLSS_G=on (Reflex forced on) and the FG plugin bound + supported: call
+int vk_dlss_dlaa(void); // available and HAYA_DLSS_MODE=dlaa: run at native resolution
+// Phase 2: 1 when HAYA_DLSS_G=on (Reflex forced on) and the FG plugin bound + supported: call
 // vk_dlss_fg_tick once per presented frame; the tick polls slDLSSGGetState and logs the interpolation proof.
 int vk_dlss_fg_on(void);
 void vk_dlss_fg_tick(void);
-// Phase 2 manual hooking (ProgrammingGuideManualHooking.md 1.1): when XC2_DLSS_G=on the
+// Phase 2 manual hooking (ProgrammingGuideManualHooking.md 1.1): when HAYA_DLSS_G=on the
 // 8 Vulkan dispatch functions below must resolve through sl.interposer.dll so its present
 // and swapchain hooks fire; without this DLSS-G applies cleanly but presents 0 frames.
 // Returns SL's version of the named function, or NULL (call the native one) when FG is

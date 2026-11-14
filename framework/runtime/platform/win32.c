@@ -1059,7 +1059,7 @@ void plat_fatal_notice(const char *utf8) {
     wchar_t *w = n > 0 ? malloc((size_t)n * sizeof *w) : NULL;
     if (!w) return;
     MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, n);
-    MessageBoxW(NULL, w, L"XC2 Recomp", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+    MessageBoxW(NULL, w, L"Hayarigami Recomp", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
     free(w);
 }
 

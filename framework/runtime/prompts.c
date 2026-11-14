@@ -19,12 +19,12 @@ static char text_dir[1200];          // prompts/text, the text every redrawn set
 static struct { char *path; const char *dir; } files[MAX_FILES];   // the paths from the manifest and their folder
 static int nfiles;
 
-// The set XC2_PROMPTS and the gamepad pick: a folder of tools/xc2_prompts.py, NULL for the game's own prompts.
+// The set HAYA_PROMPTS and the gamepad pick: a folder of tools/xc2_prompts.py, NULL for the game's own prompts.
 static const char *pick(const char **why) {
-    const char *v = cfg_value("XC2_PROMPTS");
+    const char *v = cfg_value("HAYA_PROMPTS");
     int south = PAD_LABEL_NONE, layout = PAD_LAYOUT_XBOX;
     int pad = input_pad_identity(&south, &layout);
-    if (!pad) layout = input_pad_layout_pick(cfg_value("XC2_PAD_LAYOUT"), 0);
+    if (!pad) layout = input_pad_layout_pick(cfg_value("HAYA_PAD_LAYOUT"), 0);
     const char *kind = v;
     *why = "prompts = ";
     if (!strcmp(v, "auto")) {
@@ -38,7 +38,7 @@ static const char *pick(const char **why) {
     return !strcmp(kind, "playstation") ? "playstation_nintendo" : "xbox_nintendo";
 }
 
-// The folder of xc2.exe with its separator; 0 when the host cannot say.
+// The folder of haya.exe with its separator; 0 when the host cannot say.
 static int exe_dir(char *base, size_t cap) {
     if (!plat_exe_path(base, cap)) return 0;
     char *sep = plat_last_sep(base);
@@ -50,7 +50,7 @@ static int exe_dir(char *base, size_t cap) {
 static void init(void *arg) {
     (void)arg;
     const char *why = NULL, *set = pick(&why);
-    const char *v = cfg_value("XC2_PROMPTS");
+    const char *v = cfg_value("HAYA_PROMPTS");
     if (!set) {
         rt_log("prompts: the game's own (%s%s)", why, !strcmp(why, "prompts = ") ? v : "");
         return;
@@ -92,7 +92,7 @@ static void init(void *arg) {
 }
 
 int prompts_possible(void) {
-    if (!strcmp(cfg_value("XC2_PROMPTS"), "switch")) return 0;
+    if (!strcmp(cfg_value("HAYA_PROMPTS"), "switch")) return 0;
     char base[1100], path[1200];
     if (!exe_dir(base, sizeof base)) return 0;
     snprintf(path, sizeof path, "%sprompts/manifest.tsv", base);

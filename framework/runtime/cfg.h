@@ -1,14 +1,14 @@
-// Settings: the XC2_* environment variables, with xc2.ini next to xc2.exe behind them.
+// Settings: the HAYA_* environment variables, with haya.ini next to haya.exe behind them.
 #pragma once
 
-// getenv for a setting: the environment variable when set, else the xc2.ini key (the name without "XC2_", any
-// case), else the device profile's default (cfg.c: the Steam Deck), else NULL. The older XCX_ spelling is read too,
-// XC2_ winning when both are set. Same string semantics as getenv; the pointer stays valid for the process (a value
+// getenv for a setting: the environment variable when set, else the haya.ini key (the name without "HAYA_", any
+// case), else the device profile's default (cfg.c: the Steam Deck), else NULL. The older XC2_ and XCX_ spellings are
+// read too, HAYA_ winning, then XC2_, then XCX_. Same string semantics as getenv; the pointer stays valid for the process (a value
 // cfg_set replaces is kept). A name with neither prefix goes to getenv unchanged. Safe from any thread once cfg_init
 // has returned.
 const char *cfg_get(const char *name);
 
-// Reads xc2.ini once (xcx.ini when xc2.ini is absent: an install from before the rename), from mem_init after the
+// Reads haya.ini once (xcx.ini when haya.ini is absent: an install from before the rename), from mem_init after the
 // address space is claimed and before any setting is read. Logs the file, its key count, unknown keys and environment
 // overrides.
 void cfg_init(void);
@@ -17,7 +17,7 @@ void cfg_init(void);
 // Not thread-safe: nothing else may call cfg_get meanwhile.
 int cfg_load(const char *path);
 
-// Live settings (the in-game menu). cfg_set stores value as the xc2.ini value of name (XC2_ prefixed), marks it for
+// Live settings (the in-game menu). cfg_set stores value as the haya.ini value of name (HAYA_ prefixed), marks it for
 // cfg_save and bumps cfg_version. cfg_get returns it unless the environment sets name. Any thread.
 void cfg_set(const char *name, const char *value);
 // Bumped by every cfg_set. A consumer that keeps a parsed value compares this with the number it last saw (one atomic
@@ -25,11 +25,11 @@ void cfg_set(const char *name, const char *value);
 unsigned cfg_version(void);
 // 1 when the environment sets name: cfg_set cannot change what cfg_get returns (the menu greys the setting out).
 int cfg_from_env(const char *name);
-// 1 when the player set name (the environment or xc2.ini), 0 when cfg_get gives a device profile's default or NULL.
+// 1 when the player set name (the environment or haya.ini), 0 when cfg_get gives a device profile's default or NULL.
 int cfg_is_set(const char *name);
-// The device profile in use, "deck" or "desktop" (XC2_DEVICE_PROFILE, else what the machine is).
+// The device profile in use, "deck" or "desktop" (HAYA_DEVICE_PROFILE, else what the machine is).
 const char *cfg_device_profile(void);
-// Writes the keys cfg_set changed since the last save into the ini file next to xc2.exe (xc2.ini, or the xcx.ini that
+// Writes the keys cfg_set changed since the last save into the ini file next to haya.exe (haya.ini, or the xcx.ini that
 // was read in its place; cfg_save_to: the file at path).
 // Only those lines change: the last line of a changed key gets the new value, a missing key goes under its section
 // (after the commented example line of the key when the section has one; the section is added at the end of the file
@@ -37,17 +37,17 @@ const char *cfg_device_profile(void);
 int cfg_save(void);
 int cfg_save_to(const char *path);
 
-// Reset (the menu's "Reset all settings to defaults"). Removes the active line of each key (names without XC2_, any
-// case) from xc2.ini at the next cfg_save and its value from memory, so the consumer's own default applies again; the
+// Reset (the menu's "Reset all settings to defaults"). Removes the active line of each key (names without HAYA_, any
+// case) from haya.ini at the next cfg_save and its value from memory, so the consumer's own default applies again; the
 // commented example lines stay. Keys the environment sets are skipped. Bumps cfg_version. Returns how many it reset.
 int cfg_reset(const char *const *keys, int n);
 // 0 when the last cfg_save / cfg_save_to failed to write (the values stay set in memory, the next save tries again).
 int cfg_last_save_ok(void);
-// Every setting with a value, for a bug report ("Copy system info"): the xc2.ini and cfg_set keys (name without
-// XC2_, upper case; from_env 0), then the known XC2_ variables the environment sets (from_env 1).
+// Every setting with a value, for a bug report ("Copy system info"): the haya.ini and cfg_set keys (name without
+// HAYA_, upper case; from_env 0), then the known HAYA_ variables the environment sets (from_env 1).
 void cfg_each_active(void (*cb)(const char *key, const char *value, int from_env, void *ctx), void *ctx);
 
-// What the menu knows about a setting. key: without XC2_, upper case. def: what the consumer uses when the key is
+// What the menu knows about a setting. key: without HAYA_, upper case. def: what the consumer uses when the key is
 // unset ("" = no fixed default, the consumer picks per machine). values: "0|1", "mailbox|fifo|immediate", a range
 // "0..300", or NULL for free text. live: applies at once; the others are read at start.
 typedef struct { const char *key, *def, *values; int live; } CfgMeta;
@@ -56,7 +56,7 @@ const CfgMeta *cfg_meta(const char *key);
 // The i-th row (0-based, table order); NULL past the last.
 const CfgMeta *cfg_meta_at(int i);
 
-// The setting's value for consumers: the environment or xc2.ini value, else the CfgMeta default. name has the XC2_
+// The setting's value for consumers: the environment or haya.ini value, else the CfgMeta default. name has the HAYA_
 // prefix, like cfg_get; a name without a row is a bug (rt_fatal). A row with an empty default has no fixed value: its
 // consumer reads cfg_get and keeps its own "unset" branch. An empty value counts as unset.
 const char *cfg_value(const char *name);

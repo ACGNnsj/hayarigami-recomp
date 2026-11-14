@@ -131,10 +131,10 @@ static void *sym(const char *name) {
 void vk_dlss_early(void) {
     if (g_inited) return;
     g_inited = 1;
-    int want_dlss = !strcmp(cfg_value("XC2_UPSCALER"), "dlss");
-    int want_fg = !strcmp(cfg_value("XC2_DLSS_G"), "on");
-    int want_reflex = !!strcmp(cfg_value("XC2_REFLEX"), "off");
-    int want_nr = !strcmp(cfg_value("XC2_DLSS_NR"), "on");
+    int want_dlss = !strcmp(cfg_value("HAYA_UPSCALER"), "dlss");
+    int want_fg = !strcmp(cfg_value("HAYA_DLSS_G"), "on");
+    int want_reflex = !!strcmp(cfg_value("HAYA_REFLEX"), "off");
+    int want_nr = !strcmp(cfg_value("HAYA_DLSS_NR"), "on");
     if (want_fg && !want_reflex) {
         rt_log("vk: DLSS-G needs Reflex, forcing it on (eLowLatency)");
         want_reflex = 1;
@@ -300,9 +300,9 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
         rt_log("vk: DLSS off: slSetVulkanInfo failed");
         return 0;
     }
-    int want_dlss = !strcmp(cfg_value("XC2_UPSCALER"), "dlss");
-    int want_reflex = !!strcmp(cfg_value("XC2_REFLEX"), "off");
-    int want_fg = !strcmp(cfg_value("XC2_DLSS_G"), "on");
+    int want_dlss = !strcmp(cfg_value("HAYA_UPSCALER"), "dlss");
+    int want_reflex = !!strcmp(cfg_value("HAYA_REFLEX"), "off");
+    int want_fg = !strcmp(cfg_value("HAYA_DLSS_G"), "on");
     if (want_fg && !want_reflex) want_reflex = 1; // forced + logged in early()
     sl::AdapterInfo adapter{};
     adapter.vkPhysicalDevice = phys;
@@ -334,7 +334,7 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
         }
         if (f_reflex_options) {
             sl::ReflexOptions ro{};
-            int boost = !strcmp(cfg_value("XC2_REFLEX"), "boost");
+            int boost = !strcmp(cfg_value("HAYA_REFLEX"), "boost");
             ro.mode = boost ? sl::eLowLatencyWithBoost : sl::eLowLatency;
             if (f_reflex_options(ro) == sl::Result::eOk) {
                 g_reflex_ok = 1;
@@ -375,8 +375,8 @@ int vk_dlss_bind(void *device, void *instance, void *phys, unsigned gfx_family, 
 }
 
 int vk_dlss_available(void) {
-    int r = g_usable && strcmp(cfg_value("XC2_DLSS_MODE"), "off") != 0 &&
-            strcmp(cfg_value("XC2_UPSCALER"), "dlss") == 0;
+    int r = g_usable && strcmp(cfg_value("HAYA_DLSS_MODE"), "off") != 0 &&
+            strcmp(cfg_value("HAYA_UPSCALER"), "dlss") == 0;
     if (!r && !g_usable) {
         static int once = 0;
         if (!once) {
@@ -387,10 +387,10 @@ int vk_dlss_available(void) {
     return r;
 }
 
-int vk_dlss_dlaa(void) { return vk_dlss_available() && !strcmp(cfg_value("XC2_DLSS_MODE"), "dlaa"); }
+int vk_dlss_dlaa(void) { return vk_dlss_available() && !strcmp(cfg_value("HAYA_DLSS_MODE"), "dlaa"); }
 
 static sl::DLSSMode dlss_mode(void) {
-    const char *m = cfg_value("XC2_DLSS_MODE");
+    const char *m = cfg_value("HAYA_DLSS_MODE");
     if (!strcmp(m, "dlaa")) return sl::DLSSMode::eDLAA;
     if (!strcmp(m, "balanced")) return sl::DLSSMode::eBalanced;
     if (!strcmp(m, "performance")) return sl::DLSSMode::eMaxPerformance;
@@ -553,7 +553,7 @@ void vk_dlss_release(void) {
     f_init = NULL;
 }
 
-int vk_dlss_fg_on(void) { return g_fg_ok && !strcmp(cfg_value("XC2_DLSS_G"), "on"); }
+int vk_dlss_fg_on(void) { return g_fg_ok && !strcmp(cfg_value("HAYA_DLSS_G"), "on"); }
 
 // Once per presented frame (gfx_present.c, after vk_fsr_record): apply single-FG options on the
 // first tick, then poll slDLSSGGetState every 60 presents. numFramesActuallyPresented counts every

@@ -1,5 +1,5 @@
 // The Win32 back end of the window (gfx_wsys.h): the window and its message loop on a thread of their own, F11
-// fullscreen, the settings XC2_WINDOW_SIZE and XC2_FULLSCREEN, the monitor's refresh rate, focus, the Vulkan surface.
+// fullscreen, the settings HAYA_WINDOW_SIZE and HAYA_FULLSCREEN, the monitor's refresh rate, focus, the Vulkan surface.
 // The swapchain and the present are gfx_present.c's. The in-game menu's keyboard and mouse come from the window
 // procedure (ui/menu_win.cpp), and so do the game's (input_win.c).
 #include <stdio.h>
@@ -25,8 +25,8 @@
 static HWND g_hwnd;
 static PlatEvent g_wnd_ready;   // manual-reset: the window thread made the window or gave up
 static int g_wnd_failed;
-static int g_background;                   // XC2_BACKGROUND_WINDOW: the window stays behind the user's windows
-static int g_fs_pending;                   // window thread: XC2_FULLSCREEN waits for the first activation
+static int g_background;                   // HAYA_BACKGROUND_WINDOW: the window stays behind the user's windows
+static int g_fs_pending;                   // window thread: HAYA_FULLSCREEN waits for the first activation
 
 HWND gfx_window_handle(void) { return g_hwnd; }
 
@@ -83,14 +83,14 @@ static char g_applied_size[32];
 static int g_applied_fs;
 
 static void note_applied(void) {
-    snprintf(g_applied_size, sizeof g_applied_size, "%s", cfg_value("XC2_WINDOW_SIZE"));
+    snprintf(g_applied_size, sizeof g_applied_size, "%s", cfg_value("HAYA_WINDOW_SIZE"));
     g_applied_fs = cfg_fullscreen();
 }
 
 // Window thread: the window takes the size and fullscreen state of the settings when they changed. In fullscreen the
 // size goes into the placement restored when fullscreen ends.
 static void apply_settings(HWND h) {
-    int size_changed = strcmp(cfg_value("XC2_WINDOW_SIZE"), g_applied_size) != 0, fs = cfg_fullscreen(), fs_changed = fs != g_applied_fs;
+    int size_changed = strcmp(cfg_value("HAYA_WINDOW_SIZE"), g_applied_size) != 0, fs = cfg_fullscreen(), fs_changed = fs != g_applied_fs;
     note_applied();
     if (size_changed) {
         int cw, ch;
@@ -126,7 +126,7 @@ void gfx_window_request_close(void) {
     if (g_hwnd) PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
 }
 
-// ---- refresh rate of the window's monitor (XC2_FPS_LIMIT=display), measured when the window opens, lands on another
+// ---- refresh rate of the window's monitor (HAYA_FPS_LIMIT=display), measured when the window opens, lands on another
 // monitor or the display mode changes (gfx_window_set_refresh keeps it). QueryDisplayConfig gives the exact rational
 // rate (59.94, 143.998); EnumDisplaySettings' whole hertz is the fallback.
 static HMONITOR g_rate_mon;
@@ -185,7 +185,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             input_cursor_suspend(1);
             toggle_fullscreen(h);
             input_cursor_suspend(0);
-            cfg_set("XC2_FULLSCREEN", is_fullscreen(h) ? "1" : "0");   // the menu shows it; the next start keeps it
+            cfg_set("HAYA_FULLSCREEN", is_fullscreen(h) ? "1" : "0");   // the menu shows it; the next start keeps it
             cfg_save();
             note_applied();   // what cfg_get reads now (the environment may still override it)
         }
@@ -251,9 +251,9 @@ static void window_main(void *arg) {
     // The window opens behind the user's windows without taking focus: it shows the game's blank loading frames for a
     // while, and must not cover what the player works on meanwhile. The game still counts itself in focus until the
     // first WM_ACTIVATEAPP, so loading goes on, and keyboard input waits for the foreground (input_win.c). Its taskbar
-    // button flashes until it is brought up, and XC2_FULLSCREEN waits for that first activation.
-    // XC2_BACKGROUND_WINDOW=1 (test runs): no flashing, never fullscreen at start, and F11 keeps the window's place.
-    int background = g_background = cfg_get("XC2_BACKGROUND_WINDOW") && atoi(cfg_get("XC2_BACKGROUND_WINDOW"));
+    // button flashes until it is brought up, and HAYA_FULLSCREEN waits for that first activation.
+    // HAYA_BACKGROUND_WINDOW=1 (test runs): no flashing, never fullscreen at start, and F11 keeps the window's place.
+    int background = g_background = cfg_get("HAYA_BACKGROUND_WINDOW") && atoi(cfg_get("HAYA_BACKGROUND_WINDOW"));
     g_hwnd = CreateWindowExW(0, wc.lpszClassName, L"Hayarigami Recomp", WND_STYLE, CW_USEDEFAULT, CW_USEDEFAULT,
                              r.right - r.left, r.bottom - r.top, NULL, NULL, inst, NULL);
     if (!g_hwnd) {

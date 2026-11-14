@@ -96,7 +96,7 @@ static void samples_xy(int s, uint32_t *sx, uint32_t *sy) {
    [1,0]-layout textures (RLE strips etc., all rendering correctly today) keep the old 2048 rule. */
 uint32_t nvn_tex_bl_pitch(const nvn_texdesc *d, uint32_t row_bytes) {
     if (!d->pkg_block_h) return row_bytes;
-    const char *o = cfg_get("XC2_PKG_STRIDE");                    // diagnostic: force the packaged pitch in bytes
+    const char *o = cfg_get("HAYA_PKG_STRIDE");                    // diagnostic: force the packaged pitch in bytes
     if (o && *o) { uint32_t v = (uint32_t)strtoul(o, NULL, 0); if (v >= row_bytes) return v; }
     if (d->pkg_block_h == 4) return (row_bytes + 1023u) & ~1023u;  // packaged layout byte 0 == 3: 1024-byte pitch
     return (row_bytes + 2047u) & ~2047u;
@@ -126,7 +126,7 @@ static uint64_t level_offset(const nvn_texdesc *d, unsigned level, unsigned dpl,
 static int minimal_layout_on(void) {
     static _Atomic int enabled = -1;
     int value = atomic_load(&enabled);
-    if (value < 0) { const char *e = cfg_get("XC2_MINIMAL_LAYOUT"); value = !(e && !strcmp(e, "0")); atomic_store(&enabled, value); }
+    if (value < 0) { const char *e = cfg_get("HAYA_MINIMAL_LAYOUT"); value = !(e && !strcmp(e, "0")); atomic_store(&enabled, value); }
     return value;
 }
 static uint64_t layer_bytes(const nvn_texdesc *d, unsigned dpl, int layered,
@@ -167,8 +167,8 @@ void nvn_tex_layout(const nvn_texdesc *d, nvn_texlayout *o) {
         unsigned pl = (unsigned)(d->pkg_block_h - 1) & 0xFF;
         if (dpl >= 2) tileH = pl & 0xF;
         if (dpl == 3) tileD = pl >> 4;
-        const char *bias = cfg_get("XC2_PKG_TILE");                   // diagnostic: shift the packaged block height
-        const char *minw = cfg_get("XC2_PKG_TILE_MIN");
+        const char *bias = cfg_get("HAYA_PKG_TILE");                   // diagnostic: shift the packaged block height
+        const char *minw = cfg_get("HAYA_PKG_TILE_MIN");
         if (bias && *bias && (!minw || *minw == 0 || (int)d->width >= atoi(minw)))
             tileH = (unsigned)((int)tileH + atoi(bias)) & 0xF;
     } else if (dpl == 2) { uint32_t ah = blk(h * sy, t.bh); tileH = pick_tile((ah + ah / 2) / 8); }

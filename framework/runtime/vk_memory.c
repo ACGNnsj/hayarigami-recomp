@@ -46,7 +46,7 @@ typedef struct PoolRec {
     VPage *pt;                         // POOL_VIRT: size / 64 KiB entries
     uint64_t npages;
     volatile int32_t used;                // resolved at least once: the GPU may still read it at finalize
-    // XC2_TRACE=perf dirty census (vk_mem_dirty_submit), replay thread under the submit lock only:
+    // HAYA_TRACE=perf dirty census (vk_mem_dirty_submit), replay thread under the submit lock only:
     uint32_t bound_sub;                // last submit that bound it as a buffer (dirty_sub), 0 never
     uint32_t synced_gen;               // page generation its lazy-mirror count covers; DIRTY_UNSYNCED until scanned
     uint8_t bufbound;                  // ever bound as a vertex, index, uniform, storage or indirect buffer
@@ -212,7 +212,7 @@ static int alloc_physical(VkCtx *c, PoolRec *r) {
 int vk_fix_zero(void) {
     static int on = -1;
     if (on < 0) {
-        on = cfg_bool("XC2_FIX_ZERO");
+        on = cfg_bool("HAYA_FIX_ZERO");
     }
     return on;
 }
@@ -357,7 +357,7 @@ int vk_pool_map_virtual(pool_t *v, int n, const void *requests) {
 // Per-thread copies of resolved import and physical pools that overlap no other index entry (so pidx_find picks them for
 // any range inside), valid while pool_gen is unchanged: the replay resolves a few dozen pools thousands of times per
 // frame (16 vertex streams and every buffer binding of each draw). Direct-mapped by the 4 KiB page of the address, so
-// a hit is one compare however many pools a frame touches. XC2_RESOLVE_CHECK=1 compares every hit with the locked
+// a hit is one compare however many pools a frame touches. HAYA_RESOLVE_CHECK=1 compares every hit with the locked
 // lookup and stops on a difference.
 static int rec_class(const PoolRec *r) {
     if (r->kind != POOL_IMPORT) return VK_MCLS_DEVICE;
@@ -374,7 +374,7 @@ static ResolveHit *rhit_slot(uint64_t addr) { return &rhit[(addr >> 12 ^ addr >>
 static int resolve_check_on(void) {
     static int on = -1;
     if (on < 0) {
-        const char *e = cfg_get("XC2_RESOLVE_CHECK");
+        const char *e = cfg_get("HAYA_RESOLVE_CHECK");
         on = e && *e && strcmp(e, "0");
     }
     return on;
@@ -490,7 +490,7 @@ static void flag_names(uint32_t f, char *buf, size_t n) {
 
 // One line per (kind, flags) group of the live pools, then the bytes the replay bound or copied per frame by pool
 // class since the previous census (the first one: since frame 1200). Logged at frame 1800 (in the world from the
-// run-game saves), at frame 600, and with XC2_TRACE=perf every 1800 frames.
+// run-game saves), at frame 600, and with HAYA_TRACE=perf every 1800 frames.
 static void dirty_frame(uint64_t frame);
 
 static void mirror_log(uint64_t frame);
@@ -563,7 +563,7 @@ int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact) {
         for (uint32_t h = 0; h < p2.memoryProperties.memoryHeapCount && h < VK_MAX_MEMORY_HEAPS; h++)
             if (p2.memoryProperties.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
                 *used += b.heapUsage[h], *budget += b.heapBudget[h];
-        if (c->vram_held && *budget > c->vram_held && *used >= c->vram_held)   // XC2_VRAM_LIMIT
+        if (c->vram_held && *budget > c->vram_held && *used >= c->vram_held)   // HAYA_VRAM_LIMIT
             *used -= c->vram_held, *budget -= c->vram_held;
         *exact = 1;
         return *budget != 0;
@@ -769,7 +769,7 @@ void vk_mem_snap_stats(uint64_t *checks, uint64_t *calls, uint64_t *untracked) {
     *untracked = __atomic_exchange_n(&n_snap_untracked, 0, __ATOMIC_RELAXED);
 }
 
-// ---------------------------------------------------------------- dirty census (XC2_TRACE=perf)
+// ---------------------------------------------------------------- dirty census (HAYA_TRACE=perf)
 // What a device-local mirror of the buffer-bound pools would upload. The replay notes every
 // imported pool it binds as a vertex, index, uniform, storage or indirect buffer (vk_mem_bound_note). At the start of
 // each submit one write-watch query per run of such pools stamps the pages written since with a new generation, in the
@@ -833,7 +833,7 @@ static int query_stamp(uint64_t lo, uint64_t hi, uint32_t g) {
 // - GPU -> guest: the replay notes each GPU write into CPU-visible memory at record time (vk_mem_gpu_pending) and
 //   reports it at the fence (vk_gpu_written), which copies those bytes back into guest memory. Until then the CPU
 //   copies skip them: a page the CPU and the GPU both write keeps the GPU's bytes.
-// XC2_SHADOW=1/0 forces the mode on or off; the default is on for Linux.
+// HAYA_SHADOW=1/0 forces the mode on or off; the default is on for Linux.
 typedef struct { uint64_t lo, hi; } SRange;
 static PlatMutex shadow_lock = PLAT_MUTEX_INIT;   // after pool_lock; before gen_lock
 static PoolRec **stouch;                          // shadow_lock: pools resolved since the last sync
@@ -1124,7 +1124,7 @@ static void dirty_frame(uint64_t frame) {
 // ---------------------------------------------------------------- VRAM mirror of buffer-bound pools
 // An imported pool keeps vertices, indices, constants
 // and storage buffers in system memory, so a discrete GPU reads them over PCIe on every draw (GTX 1050 Ti and RTX
-// 3090 Ti: about 110 ms of GPU time per frame in the field). In mirror mode (device class discrete, XC2_MEMORY) an
+// 3090 Ti: about 110 ms of GPU time per frame in the field). In mirror mode (device class discrete, HAYA_MEMORY) an
 // imported pool gets a device-local buffer over its imported range the first time the replay uses it as a vertex,
 // index, uniform, storage or indirect buffer (vk_mem_use). From then on those bindings, and the buffer copies, fills
 // and uniform updates that touch the pool (vk_mem_pick), use the mirror at the same offsets. Guest memory stays what
@@ -1146,7 +1146,7 @@ static void dirty_frame(uint64_t frame) {
 // - GPU -> guest: what the replay writes into a mirror (storage buffers its shaders write, buffer copies, fills,
 //   uniform updates, texture-to-buffer copies: vk_mem_gpu_wrote) goes back into the imported buffer at the end of the
 //   submission, exact byte ranges, before the fence signals (vk_mem_mirror_end).
-// - XC2_MEMORY=verify: every submission also copies up to VERIFY_BYTES of mirror pages, round robin, into host memory;
+// - HAYA_MEMORY=verify: every submission also copies up to VERIFY_BYTES of mirror pages, round robin, into host memory;
 //   at its fence the pages the CPU has not written since their sync are compared with guest memory.
 // A pool whose mirror would not fit the VRAM budget gets its mirror in host memory instead (issue 28: a 420 MiB pool on
 // a 4 GB card). The point of a mirror there is not speed but the sync: the GPU reads the bytes as of the submission,
@@ -1157,7 +1157,7 @@ static void dirty_frame(uint64_t frame) {
 //   that a write-back of a submission not complete at the capture (fence above MCap.done) touches are stale; the
 //   mirror already holds the GPU's bytes there (the replay records submissions in order), and the prologue leaves those
 //   bytes out (apply_capture). The CPU cannot have written them since without waiting for that fence.
-// - Staged uploads (XC2_MIRROR_STAGE, on): with 0, or past STAGE_MAX bytes of a capture, the capture keeps only the
+// - Staged uploads (HAYA_MIRROR_STAGE, on): with 0, or past STAGE_MAX bytes of a capture, the capture keeps only the
 //   ranges, and the GPU copies them from guest memory when it runs the prologue (a live read).
 #define VERIFY_BYTES (4u << 20)
 #define VERIFY_SAMPLES 64
@@ -1287,8 +1287,8 @@ static void wbf_prune(uint64_t done) {
 }
 
 static void mirror_mode(int discrete) {
-    const char *e = cfg_value("XC2_MEMORY");
-    const char *sh = cfg_get("XC2_SHADOW");
+    const char *e = cfg_value("HAYA_MEMORY");
+    const char *sh = cfg_get("HAYA_SHADOW");
 #ifdef _WIN32
     shadow_on = sh && *sh && strcmp(sh, "0");
 #else
@@ -1298,7 +1298,7 @@ static void mirror_mode(int discrete) {
     // uploads, which let the frame guard go (Iris Xe, first battle: 45 fps with import, 59 with mirror, for 1.3 GiB more
     // system memory). Not with shadow storage (the default off Windows): the guard stays on there (nvn_reads_snapshot),
     // so the mirror would only cost memory. Nor below UMA_MIRROR_MB of system memory: the game alone holds about 5.6 GiB
-    // and the device budget, which is that same memory, let all 1.3 GiB of mirrors in with 2 GiB left (XC2_VRAM_LIMIT on
+    // and the device budget, which is that same memory, let all 1.3 GiB of mirrors in with 2 GiB left (HAYA_VRAM_LIMIT on
     // the Iris Xe), so an 8 GB machine would page instead of losing a quarter of its frame rate.
 #define UMA_MIRROR_MB 11000.0f   // a "12 GB" machine reports a little less
     float ram_used, ram_total = 0, ram_proc;
@@ -1308,24 +1308,24 @@ static void mirror_mode(int discrete) {
     snprintf(uma_why, sizeof uma_why, "auto, uma with %.1f GiB of system memory", ram_total / 1024.0f);
     const char *why = discrete ? "auto, discrete gpu" : shadow_on ? "auto, uma with shadow storage" : uma_why;
     if (strcmp(e, "auto")) {
-        if (!strcmp(e, "import")) mode = 0, why = "XC2_MEMORY=import";
-        else if (!strcmp(e, "mirror")) mode = 1, why = "XC2_MEMORY=mirror";
-        else if (!strcmp(e, "verify")) mode = 2, why = "XC2_MEMORY=verify";
-        else rt_log("mem: XC2_MEMORY=%s is not import, mirror, verify or auto: auto", e);
+        if (!strcmp(e, "import")) mode = 0, why = "HAYA_MEMORY=import";
+        else if (!strcmp(e, "mirror")) mode = 1, why = "HAYA_MEMORY=mirror";
+        else if (!strcmp(e, "verify")) mode = 2, why = "HAYA_MEMORY=verify";
+        else rt_log("mem: HAYA_MEMORY=%s is not import, mirror, verify or auto: auto", e);
     }
     vk_mirror_on = mode > 0;
     mirror_verify = mode == 2;
-    const char *g = cfg_get("XC2_MIRROR_GAP");
+    const char *g = cfg_get("HAYA_MIRROR_GAP");
     mirror_gap = g && *g ? atoi(g) : 2;
     if (mirror_gap < 0) mirror_gap = 0;
     mirror_stage = rt_knob("MIRROR_STAGE", "1") == 1;
     // Submissions a region stays unwritten before it is frozen. 60 rather than 300: in a fight 100 of the 257 MiB
     // queried a frame lay in regions idle for 30-299 submissions, and a thaw by a write costs about 60 us.
-    const char *fi = cfg_get("XC2_FREEZE_IDLE");
+    const char *fi = cfg_get("HAYA_FREEZE_IDLE");
     freeze_idle = fi && *fi ? atoi(fi) : 60;
     if (freeze_idle < 0) freeze_idle = 0;
     if (shadow_on) rt_log("mem: shadow storage: CPU-visible pools are host-visible copies of guest memory, not imports%s",
-                          sh && *sh ? " (XC2_SHADOW)" : "");
+                          sh && *sh ? " (HAYA_SHADOW)" : "");
     rt_log("mem: mode %s (%s): %s", mode == 2 ? "verify" : mode ? "mirror" : "import", why,
            mode ? "pools used as buffers get a device-local mirror" : "every CPU-visible pool is imported host memory");
 }
@@ -1971,7 +1971,7 @@ int vk_mem_mirror_end(VkCommandBuffer cb, uint64_t fence) {
     return rec;
 }
 
-// One summary line: with XC2_TRACE=perf every 60 frames, else at frames 600 and 1800.
+// One summary line: with HAYA_TRACE=perf every 60 frames, else at frames 600 and 1800.
 static void mirror_log(uint64_t frame) {
     static uint64_t last, ww_last;
     plat_mutex_lock(&gen_lock);
@@ -2021,7 +2021,7 @@ static void mirror_log(uint64_t frame) {
            a.create_queries / f, a.prologues / f, qpc_ms(a.cap_t) / f, ver);
 }
 
-// With XC2_TRACE=perf every 600 frames: what holds device-local memory, to see what grows over a long session.
+// With HAYA_TRACE=perf every 600 frames: what holds device-local memory, to see what grows over a long session.
 // VMA's blocks and allocations on the device-local heaps, texture entries with their own memory, the VRAM mirrors and
 // the objects waiting for their last submission to retire.
 static void vram_log(uint64_t frame) {

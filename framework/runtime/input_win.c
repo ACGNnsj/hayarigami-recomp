@@ -190,11 +190,11 @@ int input_flight_key(void) {
 
 // ---- input_wsys.h
 int ikb_foreground(void) {
-    // XC2_INPUT_FORCE=1 (test runs): keys count while the window is not in front, so a script can drive a session
+    // HAYA_INPUT_FORCE=1 (test runs): keys count while the window is not in front, so a script can drive a session
     // that runs in the background.
     static int force = -1;
     static unsigned seen;
-    if (seen != cfg_version()) seen = cfg_version(), force = cfg_bool("XC2_INPUT_FORCE");
+    if (seen != cfg_version()) seen = cfg_version(), force = cfg_bool("HAYA_INPUT_FORCE");
     if (force) return 1;
     HWND w = gfx_window_handle();
     return w && w == GetForegroundWindow();

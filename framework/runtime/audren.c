@@ -368,12 +368,12 @@ static void advance_voice(AudioRenderer *r, ServerVoice *v, double out_seconds) 
     }
 }
 
-// XC2_AUDIO_STATS=1: how far the renderer actually got. A renderer the game opens and then leaves stopped is
+// HAYA_AUDIO_STATS=1: how far the renderer actually got. A renderer the game opens and then leaves stopped is
 // indistinguishable from a silent one in every other log line.
 static int aud_stats_on(void) {
     static int on = -1;
     if (on < 0) {
-        const char *e = getenv("XC2_AUDIO_STATS");
+        const char *e = getenv("HAYA_AUDIO_STATS");
         on = e && *e && *e != '0';
     }
     return on;

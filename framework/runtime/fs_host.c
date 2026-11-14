@@ -1133,13 +1133,13 @@ static void ov_open_file(Cpu *c) {
 static void ov_file_size(Cpu *c) { ret_x(c, file_size(arg_p(c, 0), arg_x(c, 1))); }
 static void ov_close_file(Cpu *c) { close_file(arg_x(c, 0)); }
 static void ov_entry_type(Cpu *c) { ret_x(c, entry_type(arg_p(c, 0), arg_p(c, 1))); }
-// XC2_FS_PROGRESS=1: appends the running total of bytes read to fs_progress.log every 256 MiB, flushed at once, so a
+// HAYA_FS_PROGRESS=1: appends the running total of bytes read to fs_progress.log every 256 MiB, flushed at once, so a
 // load that stalls is told apart from one that is merely slow while the process is still running.
 static void fs_progress(uint64_t bytes) {
     static FILE *f;
     static uint64_t total, next = 256u << 20;
     static int on = -1;
-    if (on < 0) { const char *e = getenv("XC2_FS_PROGRESS"); on = e && *e && *e != '0'; }
+    if (on < 0) { const char *e = getenv("HAYA_FS_PROGRESS"); on = e && *e && *e != '0'; }
     if (!on) return;
     total += bytes;
     if (total < next) return;
@@ -1458,7 +1458,7 @@ static uint64_t probe_romfs(void) {
     CHECK(write_open == FS_R_UNSUPPORTED_OPEN && write_existing == FS_R_UNSUPPORTED_OPEN,
           "write open -> %#x/%#x, expected 0x6402", write_open, write_existing);
 
-    // Overlays (XC2_ROMFS_PATCHES, XC2_ROMFS_MODS): served in place of the original, added files and their folders
+    // Overlays (HAYA_ROMFS_PATCHES, HAYA_ROMFS_MODS): served in place of the original, added files and their folders
     // exist, bytes equal the overlay file.
     size_t nov = romfs_overlay_count(), ovok = 0;
     for (size_t k = 0; k < nov; k++) {
@@ -1799,7 +1799,7 @@ static void probe_storage(void) {
 
 // The port's own pack: listed last and only when no pack the game searches is installed, granting nothing (it has no
 // key.bin) and answering only for the prompts. Which side runs depends on the RomFS folder's aoc/ and on prompts/ next
-// to the exe: XC2_ROMFS at an install without add-on content takes the other one.
+// to the exe: HAYA_ROMFS at an install without add-on content takes the other one.
 static void probe_port_pack(void) {
     int32_t list[AOC_MAX];
     int n = fs_aoc_list(list, 0, AOC_MAX), port = fs_aoc_port_pack(), searched = 0;

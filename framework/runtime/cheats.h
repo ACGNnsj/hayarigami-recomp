@@ -28,7 +28,7 @@ typedef struct {
     const char *note;     // why it is unsupported ("" otherwise)
     CheatKind kind;
     uint32_t buttons;     // CHEAT_KEY: HidNpadButton mask
-    char key[24];         // its setting, XC2_CHEAT_<hash of "<mod>/<name>">
+    char key[24];         // its setting, HAYA_CHEAT_<hash of "<mod>/<name>">
 } CheatInfo;
 
 void cheats_init(void);                    // after rt_patches_init: reads the mods' files and their build status
@@ -37,7 +37,7 @@ int cheats_count(void);
 int cheats_unbuilt(void);
 const CheatInfo *cheats_info(int i);
 int cheats_on(int i);                      // the player's switch (1 for a master cheat)
-void cheats_set(int i, int on);            // switches at once and sets the cheat's setting (the menu saves xc2.ini)
+void cheats_set(int i, int on);            // switches at once and sets the cheat's setting (the menu saves haya.ini)
 const char *cheats_file(void);             // "<build id>.txt", the name the files have for this game version
 // Every presented frame (the present path): the data cheats' VM and the button state of CHEAT_KEY cheats.
 void cheats_frame(uint64_t frame);
@@ -45,17 +45,17 @@ void cheats_frame(uint64_t frame);
 const char *cheats_buttons(uint32_t mask, char *buf, int n);
 
 // The port's own cheats (cheats.c), beyond the mods' files: patch sets of the generator's patch file
-// (recomp/patches.py), each with the setting XC2_CHEAT_<name> under [cheats] in xc2.ini, off unless the player
+// (recomp/patches.py), each with the setting HAYA_CHEAT_<name> under [cheats] in haya.ini, off unless the player
 // switched it on. A build whose patch file has none of them (another game version's) lists none.
 typedef struct {
     UiTextId name, desc;   // the Cheats tab row's label and description
-    const char *key;       // the setting, XC2_CHEAT_<name>
+    const char *key;       // the setting, HAYA_CHEAT_<name>
 } CheatBuiltin;
 
 int cheats_builtin_count(void);
 const CheatBuiltin *cheats_builtin(int i);
 int cheats_builtin_on(int i);              // the set's switch, which follows the setting
-void cheats_builtin_set(int i, int on);    // switches at once and writes the setting (the menu saves xc2.ini)
+void cheats_builtin_set(int i, int on);    // switches at once and writes the setting (the menu saves haya.ini)
 
 #ifdef __cplusplus
 }

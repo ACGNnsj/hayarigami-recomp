@@ -4,7 +4,7 @@
 // the setting is read at start, and is greyed out with a note when an environment variable fixes it.
 //
 //   opt_begin("##screen", scale);
-//   opt_toggle("XC2_FULLSCREEN", UI_MENU_FULLSCREEN, UI_MENU_FULLSCREEN_DESC);
+//   opt_toggle("HAYA_FULLSCREEN", UI_MENU_FULLSCREEN, UI_MENU_FULLSCREEN_DESC);
 //   opt_end();
 //
 // key: the setting's XC2_ name, which must have a cfg_meta row. Present path only (ImGui).
@@ -72,9 +72,9 @@ void opt_bind_header(UiTextId c0, UiTextId c1, UiTextId c2);
 int opt_bind_row(const char *key, const char *label, UiTextId desc, const char *const cells[3], const bool enabled[3],
                  const char *note = nullptr);
 
-// xc2.ini is written a moment after the last change (a held slider would rewrite it every frame) and when the menu
+// haya.ini is written a moment after the last change (a held slider would rewrite it every frame) and when the menu
 // closes. opt_save_tick: on every frame the menu lays out; force: write now if anything is pending. 1 while a write is
 // pending.
 int opt_save_tick(int force);
-// A change made outside a row (Reset, F10): xc2.ini is written as after a row's change.
+// A change made outside a row (Reset, F10): haya.ini is written as after a row's change.
 void opt_save_soon(void);

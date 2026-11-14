@@ -3,7 +3,7 @@
 cd /d/consoles/ns/hayarigami-recomp || exit 1
 run_one() {
   local only=$1 name=$2
-  XC2_DRAW_ONLY=$only bash tools/_run.sh 24 "build/v0/iso_$name.png" >/dev/null 2>&1 &
+  HAYA_DRAW_ONLY=$only bash tools/_run.sh 24 "build/v0/iso_$name.png" >/dev/null 2>&1 &
   local rp=$!
   pwsh -NoProfile -File tools/_tap_seq.ps1 '9:0x45' >/dev/null 2>&1
   wait $rp

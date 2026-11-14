@@ -399,3 +399,9 @@ no state anomalies; screenshot unobtainable (02:30 focus fight, FOREGROUND_MISMA
 bar met, rendering pipeline unchanged from visually-proven state.
 - Next: update NVIDIA driver past R575, then retry device-wrap; FG interpolation still gated on
 real engine motion vectors (synth-input matrix exhausted: drift/mid-depth/static/120fps all 1/60).
+
+## 2026-11-14 — 键位与命名（VN 键位 + HAYA_ 配置面）
+
+- 键位（同真 1+2 port）：方向键直驱十字键，空格/回车/E=确认（B_A），退格/Shift=取消（B_B），Esc 留给菜单（input_map.c, DEFAULT_KEY_COUNT 26→27）。
+- 命名：XC2_ 环境变量前缀改为 HAYA_，xc2.ini→haya.ini，XC2 Recomp→Hayarigami Recomp；旧 XC2_/XCX_ 变量与文件仍兼容（三级 fallback：HAYA_ > XC2_ > XCX_，mirror 真 1+2 d718a2f）。
+- 触及：framework/runtime 全套（102 文件机械改名 + cfg.c/cfg.h/cfg_probe.c fallback 结构）与 tools/*.sh 启动脚本。

@@ -2,7 +2,7 @@
 // thread that called. The text starts as the game's initial text, else a default name from the catalog (ui_text.c),
 // selected, so a controller can confirm it: A = OK, B = cancel (each after it was seen released); Enter / Esc and the
 // buttons work too.
-//   XC2_SWKBD_TEST=ok|cancel   open the window, then press OK / Cancel on the first timer tick
+//   HAYA_SWKBD_TEST=ok|cancel   open the window, then press OK / Cancel on the first timer tick
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -29,7 +29,7 @@ typedef struct {
     size_t n;
     int result;                          // 0 open, 1 OK, -1 cancelled
     uint64_t armed;                      // buttons seen released since the window opened
-    int test;                            // XC2_SWKBD_TEST: 1 press OK, -1 press Cancel
+    int test;                            // HAYA_SWKBD_TEST: 1 press OK, -1 press Cancel
 } Entry;
 
 static wchar_t *wide(const char *utf8, wchar_t *buf, int cap) {
@@ -100,7 +100,7 @@ int text_entry_run(const SwkbdRequest *req, uint16_t *out, size_t cap, size_t *n
         rt_fatal("nn::swkbd::ShowKeyboard: RegisterClassEx (error %lu)", GetLastError());
 
     Entry e = {.req = req, .armed = 0};
-    const char *test = cfg_get("XC2_SWKBD_TEST");
+    const char *test = cfg_get("HAYA_SWKBD_TEST");
     if (test && *test) e.test = !strcmp(test, "cancel") ? -1 : 1;
     NONCLIENTMETRICSW ncm = {.cbSize = sizeof ncm};
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof ncm, &ncm, 0);

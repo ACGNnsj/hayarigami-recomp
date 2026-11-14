@@ -1,5 +1,5 @@
 // AMD FSR upscaling (formerly FidelityFX Super Resolution, FSR 3.1 in FidelityFX SDK 1.1.4 and FSR Upscaling 4.x in
-// the AMD FSR SDK 2.x) in place of XC2's temporal anti-aliasing and final scaling (XC2_FSR3, applies at the next frame).
+// the AMD FSR SDK 2.x) in place of XC2's temporal anti-aliasing and final scaling (HAYA_FSR3, applies at the next frame).
 //
 // XC2 renders with a jittered camera at the 3D render scale, and keeps that size through its temporal resolve, bloom and
 // tone map. Only the first draw of the HUD pass stretches the picture to the output size. So FSR runs there, on the
@@ -31,7 +31,7 @@
 // - amd_fidelityfx_vk.dll, the FidelityFX SDK 1.1.4 library from earlier releases (and the name OptiScaler replaces).
 //   It knows neither the version structures nor the newer backend descriptor, so it gets the deprecated one.
 //
-// XC2_FSR_VERSION (auto, 4, 3) pins a provider version through ffxOverrideVersion; auto takes what the API selects.
+// HAYA_FSR_VERSION (auto, 4, 3) pins a provider version through ffxOverrideVersion; auto takes what the API selects.
 //
 // The depth and motion images and FSR's output are double buffered by frame: frame generation (vk_fg.c) reads them at
 // the present, which can run while the next frame is already on the GPU.
@@ -83,7 +83,7 @@ static struct {
     ffxContext ctx;
     VkDeviceContext dev;           // the 2.x backend descriptor
     char version[64];              // what the context reports, for the log
-    char pinned[8];                // the XC2_FSR_VERSION the context was created for
+    char pinned[8];                // the HAYA_FSR_VERSION the context was created for
     PFN_vkCmdPushDescriptorSetKHR push;
     VkDescriptorSetLayout dsl;
     VkPipelineLayout layout;
@@ -349,7 +349,7 @@ static int ensure_input(VkCtx *c, uint32_t w, uint32_t h) {
 // Both output images, the context, and the version the setting asks for. A changed setting (a new version, or auto
 // where a version was pinned) makes a new context.
 static int ensure_output(VkCtx *c, uint32_t w, uint32_t h) {
-    const char *want = cfg_value("XC2_FSR_VERSION");
+    const char *want = cfg_value("HAYA_FSR_VERSION");
     if (F.img[IMG_OUT][0] && F.img[IMG_OUT][1] && F.ow == w && F.oh == h && !strcmp(want, F.pinned)) return 1;
     if (F.ctx) {
         wait_idle(c);
@@ -485,7 +485,7 @@ void vk_fsr3_note(VkExec *ex) {
     int unfinished = F.stage != STAGE_NONE;
     F.stage = STAGE_NONE;
     // Frame generation is off without FSR3 too (vk_fg_wanted); DLSS upscaling needs the same capture.
-    if (!cfg_bool("XC2_FSR3") && !vk_dlss_available()) return;
+    if (!cfg_bool("HAYA_FSR3") && !vk_dlss_available()) return;
     VkCtx *c = vk_ctx();
     if (!F.tried) init(c);
     if (!F.ok) return;
@@ -626,7 +626,7 @@ static void record_upscale(VkExec *ex) {
     copy_picture(cb, F.tone, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, NULL);
     image_layout(cb, F.img[IMG_COLOUR][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     image_layout(cb, F.img[IMG_OUT][F.par], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    if (!strcmp(cfg_value("XC2_UPSCALER"), "dlss") && vk_dlss_available()) {
+    if (!strcmp(cfg_value("HAYA_UPSCALER"), "dlss") && vk_dlss_available()) {
         float mvscale[2] = {1.0f / (float)F.rw, 1.0f / (float)F.rh};   // the prep shader outputs pixels
         if (!vk_dlss_dispatch(cb, F.img[IMG_COLOUR][0], F.view[IMG_COLOUR][0], PICTURE_FORMAT,
                               F.img[IMG_DEPTH][F.par], F.view[IMG_DEPTH][F.par], VK_FORMAT_R32_SFLOAT,

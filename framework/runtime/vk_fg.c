@@ -1,4 +1,4 @@
-// AMD FSR Frame Generation on the present (XC2_FRAME_GEN, off by default, needs XC2_FSR3 for its inputs).
+// AMD FSR Frame Generation on the present (HAYA_FRAME_GEN, off by default, needs HAYA_FSR3 for its inputs).
 //
 // The frame generation swapchain of the AMD FSR SDK replaces ours: it destroys the VkSwapchainKHR handed to it and
 // returns its own, and it replaces vkGetSwapchainImagesKHR, vkAcquireNextImageKHR and vkQueuePresentKHR. It then
@@ -85,7 +85,7 @@ static void warn_once(int bit, const char *what) {
     rt_log("vk: frame generation off: %s", what);
 }
 
-// XC2_TRACE=present: a line at each step of the frame generation path, for crashes inside its library.
+// HAYA_TRACE=present: a line at each step of the frame generation path, for crashes inside its library.
 static void trace(const char *what) {
     if (rt_trace & RT_TRACE_PRESENT) rt_log("fg: %s", what);
 }
@@ -136,11 +136,11 @@ static int init(void) {
 
 // On: the setting is on, the library loaded, and the inputs frame generation needs exist (the upscaler's resolve hook).
 int vk_fg_wanted(void) {
-    if (!cfg_bool("XC2_FRAME_GEN")) return 0;
+    if (!cfg_bool("HAYA_FRAME_GEN")) return 0;
     if (G.failed) return 0;
     if (!G.tried && !init()) return 0;
     if (!G.ok) return 0;
-    if (!cfg_bool("XC2_FSR3")) {
+    if (!cfg_bool("HAYA_FSR3")) {
         warn_once(0, "it needs fsr3 = 1 for its depth, motion vectors and HUD-less picture");
         return 0;
     }

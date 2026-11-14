@@ -148,12 +148,12 @@ static void ov_stop(Cpu *c) {
     plat_mutex_unlock(&lock);
 }
 
-// XC2_AUDIO_STATS=1: the peak of every 100 buffers the game appends, in dBFS. A silent host output still reports a
+// HAYA_AUDIO_STATS=1: the peak of every 100 buffers the game appends, in dBFS. A silent host output still reports a
 // healthy AudioOut, so the only way to tell a missing voice or a mixer fed zeros from working audio is what goes in.
 static void audio_stats(const void *data, uint64_t size) {
     static int on = -1, n, peak;
     if (on < 0) {
-        const char *e = getenv("XC2_AUDIO_STATS");
+        const char *e = getenv("HAYA_AUDIO_STATS");
         on = e && *e && *e != '0';
     }
     if (!on) return;

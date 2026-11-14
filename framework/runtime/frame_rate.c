@@ -12,7 +12,7 @@
 // instead: +0 ratio = seconds * 30, +4 seconds (1.4.3: +8 interval = seconds * 60, the producer's nominal interval
 // before its half-step coefficient), the moving average of the last 5 display intervals, at most 1/15 s
 // (slower frames slow the game down, as on the console), no lower bound, so a higher frame-rate cap only changes the
-// pacer (frame_step_cap_ns, XC2_FPS_LIMIT). The set cloth gives hair and cloth the same clock and needs realtime.
+// pacer (frame_step_cap_ns, HAYA_FPS_LIMIT). The set cloth gives hair and cloth the same clock and needs realtime.
 //
 // The sample is the display time the pacer gives each present (nvnQueuePresentTexture), so the step follows the
 // frames as shown, pacing waits included. With the step on, the pacer ignores the game's interval and holds a frame
@@ -27,8 +27,8 @@
 // (input.c) runs on it, so a replay presses at the same game time at any frame rate and after a first load of any
 // length; a later load (fast travel) still shifts what follows by its length.
 //
-// XC2_TRACE=perf adds a line per 120 presents: fps, the game seconds stepped against wall seconds, and with
-// XC2_SPEED_PROBE=1 the player's position and ground speed (an independent check: Link runs at the same speed at
+// HAYA_TRACE=perf adds a line per 120 presents: fps, the game seconds stepped against wall seconds, and with
+// HAYA_SPEED_PROBE=1 the player's position and ground speed (an independent check: Link runs at the same speed at
 // any frame rate when game time follows wall time).
 #include <math.h>
 #include <stdatomic.h>
@@ -120,13 +120,13 @@ int frame_rate_paced(void) { return xc2_words != NULL; }
 // Cutscenes and pre-rendered movies run at 30 fps, as the console runs them: their text and animation advance per frame (a movie's subtitles ran
 // ahead of the picture at 120 fps). A movie is a live host decoder (ov_movie.c movie_playing). The game's event state, a 32-bit field at
 // main+0x1fefaf4 (+0xcc of the object at main+0x1fefa28, getter main+0xcc5a0), is 0 in normal play and 2 or more
-// while a cutscene plays, as the 1.0.1 60FPS mod's cheat reads it (1.0.1 main+0x1ffeaf4). XC2_CUTSCENE_30=0 keeps the
-// limit in cutscenes; XC2_CUTSCENE_30=mixed keeps it in state 3 and runs 30 fps in state 4 and in movies only, as the
+// while a cutscene plays, as the 1.0.1 60FPS mod's cheat reads it (1.0.1 main+0x1ffeaf4). HAYA_CUTSCENE_30=0 keeps the
+// limit in cutscenes; HAYA_CUTSCENE_30=mixed keeps it in state 3 and runs 30 fps in state 4 and in movies only, as the
 // mod's "60-30FPS Cutscenes" variant (its cheat: state 3 one vsync per frame, state 4 two).
 static int xc2_cutscene(void) {
     static int mode = -1;   // 0 off, 1 every cutscene, 2 mixed
     if (mode < 0) {
-        const char *e = cfg_get("XC2_CUTSCENE_30");
+        const char *e = cfg_get("HAYA_CUTSCENE_30");
         mode = !e ? 1 : !strcmp(e, "mixed") ? 2 : strcmp(e, "0") != 0;
     }
     if (!mode) return 0;
@@ -164,22 +164,22 @@ void frame_step_init(void) {
     }
     if (!rt_patch_enabled(realtime) && rt_patch_enabled(cloth)) {
         rt_patch_disable(cloth);
-        rt_log("frame rate: cloth clock off, it needs the real-time step (XC2_REALTIME=0)");
+        rt_log("frame rate: cloth clock off, it needs the real-time step (HAYA_REALTIME=0)");
     }
     if (rt_patch_enabled(realtime)) {
         step_word = (_Atomic uint64_t *)rt_patch_page();
         step_interval = (_Atomic uint32_t *)((uint8_t *)rt_patch_page() + 8);
         step_store((float)STEP_FIRST_S);
     }
-    frame_limit_live();   // XC2_FPS_LIMIT decides the set fps60 from the start
+    frame_limit_live();   // HAYA_FPS_LIMIT decides the set fps60 from the start
     rt_log("frame rate: present interval %s, %s", rt_patch_enabled(fps60) ? "1..3 (above 30 fps)" : "2..3 (shipping 30 fps)",
            step_word ? "real-time step (5-frame average of display intervals, at most 1/15 s)" : "whole-vsync steps");
 }
 
 int frame_step_realtime(void) { return step_word != NULL; }
 
-// The frame limit (menu, XC2_FPS_LIMIT, live): 30, 60, 120, 144, any whole rate from 30 to 360, or display (the
-// refresh rate of the window's monitor). Unset, the older XC2_FPS60=0 still means 30. A limit of 30 switches the set
+// The frame limit (menu, HAYA_FPS_LIMIT, live): 30, 60, 120, 144, any whole rate from 30 to 360, or display (the
+// refresh rate of the window's monitor). Unset, the older HAYA_FPS60=0 still means 30. A limit of 30 switches the set
 // fps60 off (the shipping minimum interval 2), every other limit switches it on; the controller reads its minimum
 // interval from the patched sites each frame. With the real-time step the pacer holds frames to the limit; above 60
 // only the pacer changes, as the step has no lower bound. Without it the game steps whole 60 Hz vsyncs and the pacer
@@ -192,13 +192,13 @@ static int limit_read;
 static int limit_hz = -1;   // 0: display; -1 before the first read
 
 static int limit_parse(void) {
-    const char *e = cfg_get("XC2_FPS_LIMIT"), *old = cfg_get("XC2_FPS60");
+    const char *e = cfg_get("HAYA_FPS_LIMIT"), *old = cfg_get("HAYA_FPS60");
     if (!e || !*e) return old && !strcmp(old, "0") ? 30 : 60;
     if (!strcmp(e, "display")) return 0;
     char *end;
     long n = strtol(e, &end, 10);
     if (!*end && n >= LIMIT_MIN_HZ && n <= LIMIT_MAX_HZ) return (int)n;
-    rt_log("frame rate: XC2_FPS_LIMIT=%s is not 30..360 or display; 60", e);
+    rt_log("frame rate: HAYA_FPS_LIMIT=%s is not 30..360 or display; 60", e);
     return 60;
 }
 
@@ -218,7 +218,7 @@ static void frame_limit_live(void) {
         xc2_rate_store(r, r);
     }
     if ((hz > 60 || hz == 0) && !step_word && !xc2_words)
-        rt_log("frame rate: limits above 60 need the real-time step (XC2_REALTIME=1); 60 fps");
+        rt_log("frame rate: limits above 60 need the real-time step (HAYA_REALTIME=1); 60 fps");
     else if (hz) rt_log("frame rate: limit %d fps", hz);
     else if (gfx_window_refresh_hz() > 0) rt_log("frame rate: limit at the monitor's refresh rate (%.3f Hz now)", gfx_window_refresh_hz());
     else rt_log("frame rate: limit at the monitor's refresh rate (60 until the window measures it)");
@@ -252,7 +252,7 @@ double frame_step_limit_hz(void) {
     return !step_word && !xc2_words && r > 60 ? 60 : r > LIMIT_MAX_HZ ? LIMIT_MAX_HZ : r;
 }
 
-// ---- XC2_TRACE=perf speed lines
+// ---- HAYA_TRACE=perf speed lines
 static uint64_t win_t0, win_frames, win_hist[4];   // win_hist: frames by present interval 1, 2, 3+ ([0] unused)
 static double win_game;
 static int probe = -1;
@@ -293,7 +293,7 @@ static void speed_report(uint64_t now, double step, int interval) {
     win_hist[interval < 1 ? 1 : interval > 3 ? 3 : interval]++;
     if (win_frames < 120) return;
     if (probe < 0) {
-        const char *e = cfg_get("XC2_SPEED_PROBE");
+        const char *e = cfg_get("HAYA_SPEED_PROBE");
         probe = e && !strcmp(e, "1");
     }
     double wall = (double)(now - win_t0) * 1e-9;

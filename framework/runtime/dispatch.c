@@ -52,7 +52,7 @@ void rt_fatal(const char *fmt, ...) {
     fflush(stderr);
     // A game started from the desktop exits with its console window, taking the message along: show it in a box too
     char text[2048];
-    int n = snprintf(text, sizeof text, "XC2 Recomp stopped:\n\n");
+    int n = snprintf(text, sizeof text, "Hayarigami Recomp stopped:\n\n");
     vsnprintf(text + n, sizeof text - (size_t)n, fmt, again);
     va_end(again);
     size_t used = strlen(text);

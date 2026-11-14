@@ -15,9 +15,9 @@
 // - The arena goes back to a free list once the submission's fence is done (completion thread).
 // The design follows MacNativeGames' XCX_UBO_SNAPSHOT (games/totk/third_party/d2r_gfx/gfx/nvn/nvn_mtl.m usnap_take,
 // usnap_drop; MIT, Copyright (c) 2026 jhaizhou); the code is ours.
-// The copy is taken in the submit call (vk_usnap_capture from vk_backend.c vk_be_submit), also with XC2_REPLAY_ASYNC,
-// where the replay runs up to a frame later on its own thread. XC2_UBO_SNAPSHOT=0 binds live memory as before; =ab
-// alternates (XC2_AB).
+// The copy is taken in the submit call (vk_usnap_capture from vk_backend.c vk_be_submit), also with HAYA_REPLAY_ASYNC,
+// where the replay runs up to a frame later on its own thread. HAYA_UBO_SNAPSHOT=0 binds live memory as before; =ab
+// alternates (HAYA_AB).
 #include <stdlib.h>
 #include <string.h>
 

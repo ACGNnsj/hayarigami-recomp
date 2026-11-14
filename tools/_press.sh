@@ -1,5 +1,5 @@
 cd /d/consoles/ns/hayarigami-recomp
-export PATH=/c/msys64/ucrt64/bin:$PATH XC2_ROMFS=D:/consoles/ns/hayarigami-recomp/build/extracted/v0/romfs
+export PATH=/c/msys64/ucrt64/bin:$PATH HAYA_ROMFS=D:/consoles/ns/hayarigami-recomp/build/extracted/v0/romfs
 ./build/v0/haya.exe --seconds 30 --shot build/v0/shot3.png > build/v0/run22.log 2>&1 &
 PID=$!
 sleep 9

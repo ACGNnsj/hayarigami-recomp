@@ -1,7 +1,7 @@
-// xc2.ini: file-backed defaults for the XC2_* environment variables (docs/controls.md, xc2.ini.example).
+// haya.ini: file-backed defaults for the HAYA_* environment variables.
 // Format: "key = value" lines, '#' or ';' at the start of a line begins a comment, [sections] only group. A key is a
-// variable name without "XC2_", case-insensitive. The XCX_ prefix of an install from before the rename is accepted as
-// well (XC2_ wins when both are set). A value is the rest of the line, trimmed, optionally in double quotes; an empty
+// variable name without "HAYA_", case-insensitive. The XC2_ and XCX_ prefixes of installs from before the renames are
+// accepted as well (HAYA_ wins, then XC2_, then XCX_). A value is the rest of the line, trimmed, optionally in double quotes; an empty
 // value counts as unset. The environment wins over the file.
 //
 // Live settings: cfg_set changes a value in memory (readers see the new pointer; the old string is kept, so a pointer
@@ -16,12 +16,15 @@
 #include "host.h"
 #include "platform/platform.h"
 
-#define PREFIX "XC2_"
-#define LEGACY_PREFIX "XCX_"   // the spelling of installs from before the rename: read when the XC2_ name is not set
-#define PREFIX_LEN 4           // both prefixes have this length
+#define PREFIX "HAYA_"
+#define PREFIX_LEN 5           // strlen(PREFIX)
+#define LEGACY_PREFIX "XC2_"   // the spelling of installs from before the rename: read when the HAYA_ name is not set
+#define LEGACY_PREFIX2 "XCX_"  // the spelling from before that rename: read when neither HAYA_ nor XC2_ is set
+#define LEGACY_LEN 4           // strlen of either legacy prefix
 #define CFG_MAX_KEYS 512
 
-// key upper-case, without the prefix; value NULL after cfg_reset; legacy: the file line had the XCX_ prefix
+// key upper-case, without the prefix; value NULL after cfg_reset; legacy: precedence rank of the file line's
+// prefix (0 for HAYA_ and unprefixed keys, 1 for XC2_, 2 for XCX_)
 typedef struct { char *key, *value; int dirty, removed, legacy; } CfgEntry;
 
 static CfgEntry entries[CFG_MAX_KEYS];
@@ -56,7 +59,7 @@ static const char *const known[] = {
     "WALK_KEY", "WALK_SCALE", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_PROCS", "ZSTD_CHECK", "ZSTD_NATIVE",
 };
 
-// The xc2.ini section a key cfg_set may write goes to when the file lacks it (xc2.ini.example's sections).
+// The haya.ini section a key cfg_set may write goes to when the file lacks it (haya.ini.example's sections).
 static const struct { const char *key, *section; } sections[] = {
     {"FPS_LIMIT", "frame rate"}, {"FPS60", "frame rate"}, {"CUTSCENE_30", "frame rate"},
     {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
@@ -168,12 +171,15 @@ static char *trim(char *s) {
     return s;
 }
 
-// The part of a setting name after its prefix (XC2_ or the legacy XCX_), or NULL for a name with neither.
+// The part of a setting name after its prefix (HAYA_, the legacy XC2_ or the older XCX_), or NULL for a name with none.
 static const char *key_of(const char *name) {
-    return !strncmp(name, PREFIX, PREFIX_LEN) || !strncmp(name, LEGACY_PREFIX, PREFIX_LEN) ? name + PREFIX_LEN : NULL;
+    if (!strncmp(name, PREFIX, PREFIX_LEN)) return name + PREFIX_LEN;
+    if (!strncmp(name, LEGACY_PREFIX, LEGACY_LEN)) return name + LEGACY_LEN;
+    if (!strncmp(name, LEGACY_PREFIX2, LEGACY_LEN)) return name + LEGACY_LEN;
+    return NULL;
 }
 
-// The environment's value of a setting name: XC2_KEY when set, else the legacy XCX_KEY (XC2_ wins when both are set).
+// The environment's value of a setting name: HAYA_KEY when set, else the legacy HAYA_KEY, else the older XCX_KEY.
 // A name with neither prefix is looked up as it is.
 static const char *env_get(const char *name) {
     const char *key = key_of(name);
@@ -185,33 +191,40 @@ static const char *env_get(const char *name) {
         snprintf(var, sizeof var, LEGACY_PREFIX "%s", key);
         e = getenv(var);
     }
+    if (!e) {
+        snprintf(var, sizeof var, LEGACY_PREFIX2 "%s", key);
+        e = getenv(var);
+    }
     return e;
 }
 
 // The upper-case key without the prefix, in place.
 static char *norm_key(char *key) {
     for (char *p = key; *p; p++) *p = (char)toupper((unsigned char)*p);
-    return key_of(key) ? key + PREFIX_LEN : key;
+    const char *stripped = key_of(key);
+    return stripped ? stripped : key;
 }
 
 static void add(char *key, char *value, int line) {
-    int legacy = !strncasecmp(key, LEGACY_PREFIX, PREFIX_LEN);   // before norm_key upper-cases the name
+    int rank = 0;   // HAYA_ and unprefixed keys rank 0; XC2_ ranks 1, XCX_ ranks 2 (before norm_key upper-cases the name)
+    if (!strncasecmp(key, LEGACY_PREFIX, LEGACY_LEN)) rank = 1;
+    else if (!strncasecmp(key, LEGACY_PREFIX2, LEGACY_LEN)) rank = 2;
     key = norm_key(key);
     size_t vl = strlen(value);
     if (vl >= 2 && value[0] == '"' && value[vl - 1] == '"') value[vl - 1] = 0, value++;
     if (!*key) return;
-    if (!is_known(key)) rt_log("cfg: xc2.ini line %d: unknown key '%s'", line, key);
+    if (!is_known(key)) rt_log("cfg: haya.ini line %d: unknown key '%s'", line, key);
     if (!*value) return;   // "key =" leaves the setting at its default
     for (int i = 0; i < n_entries; i++)
-        if (!strcmp(entries[i].key, key)) {   // a repeated key: the later line wins, but an XC2_ line beats an XCX_ one
-            if (legacy && !entries[i].legacy) return;
+        if (!strcmp(entries[i].key, key)) {   // a repeated key: the later line wins, but a higher-precedence prefix beats a lower one
+            if (rank > entries[i].legacy) return;
             free(entries[i].value);
             entries[i].value = strdup(value);
-            entries[i].legacy = legacy;
+            entries[i].legacy = rank;
             return;
         }
     if (n_entries == CFG_MAX_KEYS) return;
-    entries[n_entries++] = (CfgEntry){strdup(key), strdup(value), 0, 0, legacy};
+    entries[n_entries++] = (CfgEntry){strdup(key), strdup(value), 0, 0, rank};
 }
 
 int cfg_load(const char *path) {
@@ -227,7 +240,7 @@ int cfg_load(const char *path) {
         char *s = trim(p);
         char *eq = strchr(s, '=');
         if (*s && *s != '#' && *s != ';' && *s != '[') {
-            if (!eq) rt_log("cfg: xc2.ini line %d: no '=' in '%s'", line, s);
+            if (!eq) rt_log("cfg: haya.ini line %d: no '=' in '%s'", line, s);
             else {
                 *eq = 0;
                 add(trim(s), trim(eq + 1), line);
@@ -240,12 +253,12 @@ int cfg_load(const char *path) {
     return 1;
 }
 
-// ---- device profiles: defaults for a known machine, below the environment and xc2.ini and above the table, so any
-// key the player sets wins and resetting a key in the menu returns to the profile's value. XC2_DEVICE_PROFILE = auto
+// ---- device profiles: defaults for a known machine, below the environment and haya.ini and above the table, so any
+// key the player sets wins and resetting a key in the menu returns to the profile's value. HAYA_DEVICE_PROFILE = auto
 // (default: the Steam Deck when the firmware says so), desktop (none) or deck.
 //
 // The Steam Deck (LCD Jupiter, OLED Galileo; 1280x800, 16:10, 4 Zen 2 cores, RDNA 2 with 8 CUs sharing 16 GB): the game
-// at 1280x720 with its own 5/6 scene, letterboxed in the 16:10 screen (XC2_PICTURE_FIT) until the game draws 16:10
+// at 1280x720 with its own 5/6 scene, letterboxed in the 16:10 screen (HAYA_PICTURE_FIT) until the game draws 16:10
 // itself; fullscreen and vsync, as gamescope composes Game Mode; 40 fps, which divides 40 Hz (and 120 Hz on the OLED).
 // Starting points to replace with measured ones (docs/tester-guide.md, Steam Deck).
 static const struct { const char *key, *value; } DECK[] = {
@@ -307,7 +320,7 @@ const char *cfg_get(const char *name) {
     return NULL;
 }
 
-// Whether name's value comes from the player (the environment or xc2.ini), not a profile or the table.
+// Whether name's value comes from the player (the environment or haya.ini), not a profile or the table.
 int cfg_is_set(const char *name) { return raw_get(name) != NULL; }
 
 unsigned cfg_version(void) { return __atomic_load_n(&version, __ATOMIC_ACQUIRE); }
@@ -486,7 +499,7 @@ static void put(Out *o, const char *s, size_t n) {
     if (o->n + n + 1 > o->cap) {
         o->cap = (o->n + n + 1) * 2;
         o->buf = realloc(o->buf, o->cap);
-        if (!o->buf) rt_fatal("cfg: out of memory writing xc2.ini");
+        if (!o->buf) rt_fatal("cfg: out of memory writing haya.ini");
     }
     memcpy(o->buf + o->n, s, n);
     o->n += n;
@@ -535,7 +548,7 @@ int cfg_save_to(const char *path) {
     // after[i]: entries to write after line i (-1 = none); replace[i]: the entry whose value line i now carries
     int *replace = malloc(sizeof(int) * ((size_t)nl + 1)), *after_key = malloc(sizeof(int) * (size_t)(n + 1));
     char *drop = calloc((size_t)nl + 1, 1);   // lines of a reset key
-    if (!lines || !replace || !after_key || !drop) rt_fatal("cfg: out of memory writing xc2.ini");
+    if (!lines || !replace || !after_key || !drop) rt_fatal("cfg: out of memory writing haya.ini");
     for (int i = 0, at = 0; i < nl; i++) {
         size_t start = (size_t)at;
         while ((uint64_t)at < size && text[at] != '\n') at++;
@@ -554,7 +567,7 @@ int cfg_save_to(const char *path) {
                 if (line_key(t, 0, k, sizeof k) && !strcmp(k, entries[e].key)) drop[i] = 1;
             }
         if (!entries[e].dirty) continue;
-        // the last line of the key; an XC2_ line beats an XCX_ one, since that is the one a load keeps
+        // the last line of the key; an HAYA_ line beats an XCX_ one, since that is the one a load keeps
         int last = -1, legacy_last = -1;
         for (int i = 0; i < nl; i++) {
             line_text(&lines[i], i == 0, t, sizeof t);
@@ -654,8 +667,8 @@ static int find_ini(void) {
     char *cut = plat_last_sep(path);
     if (!cut) cut = strrchr(path, '/');
     if (!cut || cut + 10 >= path + sizeof path) return 0;
-    strcpy(cut + 1, "xc2.ini");
-    // An install from before the rename has xcx.ini and no xc2.ini: that file is read, and saves go back to the file
+    strcpy(cut + 1, "haya.ini");
+    // An install from before the rename has xcx.ini and no haya.ini: that file is read, and saves go back to the file
     // that was read, so none of its keys is lost.
     char legacy[1024];
     strcpy(legacy, path);
@@ -687,6 +700,6 @@ static void load_ini(void) {
 void cfg_init(void) {
     load_ini();
     if (profile_of())
-        rt_log("cfg: device profile Steam Deck: defaults for the keys xc2.ini does not set (XC2_DEVICE_PROFILE=desktop "
+        rt_log("cfg: device profile Steam Deck: defaults for the keys haya.ini does not set (HAYA_DEVICE_PROFILE=desktop "
                "turns it off)");
 }
